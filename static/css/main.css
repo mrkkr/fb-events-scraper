@@ -1,0 +1,177 @@
+/*
+* Prefixed by https://autoprefixer.github.io
+* PostCSS: v8.4.14,
+* Autoprefixer: v10.4.7
+* Browsers: last 4 version
+*/
+
+/* import chota css */
+@import url(chota.min.css);
+
+/* Overwrite css here */
+
+/** 
+* dark mode
+*/
+body.dark {
+    --bg-color: #000;
+    --bg-secondary-color: #131316;
+    --font-color: #f5f5f5;
+    --color-grey: #ccc;
+    --color-darkGrey: #777;
+}
+
+/**
+* Topbar
+*/
+.topbar {
+    padding: 10px; /* Padding for the top bar */
+    position: fixed; /* Fixed position at the top */
+    top: 0; /* Stick to the top */
+    width: 100%; /* Full width */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); /* Shadow for the top bar */
+    z-index: 9999;
+}
+
+.topbar svg {
+    width: 30px; /* Adjust the width as needed */
+    height: auto; /* Maintain aspect ratio */
+    vertical-align: middle; /* Align vertically with text */
+}
+
+/**
+* Back to top
+*/
+/* Style for the back to top button */
+#backToTopBtn {
+    display: none; /* Initially hidden */
+    position: fixed; /* Fixed position */
+    bottom: 20px; /* Distance from bottom */
+    right: 20px; /* Distance from right */
+    background-color: #333; /* Background color */
+    color: #fff; /* Text color */
+    width: 40px; /* Button width */
+    height: 40px; /* Button height */
+    line-height: 40px; /* Center text vertically */
+    text-align: center; /* Center text horizontally */
+    border-radius: 50%; /* Rounded shape */
+    font-size: 24px; /* Icon size */
+    cursor: pointer; /* Cursor on hover */
+    transition: background-color 0.3s; /* Smooth transition */
+}
+
+#backToTopBtn:hover {
+    background-color: #555; /* Darker background color on hover */
+}
+
+/**
+* Utilities
+*/
+.mr-1 {
+    margin-right: .5rem;
+}
+
+.ml-1 {
+    margin-left: .5rem;
+}
+
+.mt-1 {
+    margin-top: .5rem;
+}
+
+.mt-2 {
+    margin-top: 1rem;
+}
+
+.mt-3 {
+    margin-top: 3rem;
+}
+
+.mt-4 {
+    margin-top: 4rem;
+}
+
+.mt-10-rem {
+    margin-top: 10rem;
+}
+
+.mb-1 {
+    margin-bottom: .5rem;
+}
+
+.angle-type-list {
+    list-style: disclosure-closed;
+    padding-left: 1.5rem;
+}
+
+/**
+* Columns transition
+*/
+.toggle {
+    -webkit-transition: all .5s ease-in-out;
+    -o-transition: all .5s ease-in-out;
+    transition: all .5s ease-in-out;
+}
+
+.active {
+    display: block !important;
+    opacity: 1 !important;
+    -webkit-transition: all .5s ease-in-out;
+    -o-transition: all .5s ease-in-out;
+    transition: all .5s ease-in-out;
+}
+
+.inactive {
+    display: none !important;
+    opacity: 0 !important;
+    -webkit-transition: all .5s ease-in-out;
+    -o-transition: all .5s ease-in-out;
+    transition: all .5s ease-in-out;
+}
+
+/**
+* Lazy loading
+*/
+.lazy {
+    display: none; /* Hide the lazy-loaded items */
+    opacity: 0; /* Initially hide the divs */
+    -webkit-transition: display 0.2s ease, opacity 0.8s ease;
+    -o-transition:  display 0.2s ease, opacity 0.8s ease;
+    transition:  display 0.2s ease, opacity 0.8s ease; /* Smooth transition */
+}
+
+/**
+* Datepicker
+*/
+[type="date"] {
+    background: #fff url(../pics/calendar_2.png) 0 0 0 0 no-repeat;
+}
+
+[type="date"]::-webkit-inner-spin-button {
+    display: none;
+}
+
+[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0;
+}
+
+/* custom styles */
+body {
+    background: #f2f2f2;
+}
+
+label {
+    display: block;
+    margin-bottom: 10px;
+}
+
+input.datepicker {
+    border: 1px solid var(--color-grey);
+    border-radius: 0;
+    background-color: #fff;
+    padding: 5px 10px;
+    -webkit-box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.1);
+    width: 155px;
+    height: 30px;
+}
