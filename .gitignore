@@ -1,0 +1,7 @@
+my_liked_pages.csv
+events_data.json
+results_.txt
+static/
+__pycache__
+.venv
+.vscode
