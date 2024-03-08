@@ -34,9 +34,6 @@ function handleDateChange() {
 
       // Create new Date object for elementDate with time set to midnight and year set to the current year
       const elementDateMidnight = new Date(new Date().getFullYear(), elementDate.getMonth(), elementDate.getDate());
-      console.log(`elementDateMidnight: ${elementDateMidnight}`)
-      console.log(`start date: ${startDateMidnight}`)
-      console.log(`end date: ${endDateMidnight}`)
 
       if (elementDateMidnight >= startDateMidnight && elementDateMidnight <= endDateMidnight) {
         // Show elements within the date range

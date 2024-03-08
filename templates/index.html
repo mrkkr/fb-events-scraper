@@ -41,36 +41,40 @@
 
         <div class="row mt-2">
         {% for date, events in events.items() %}
-            {% set outer_loop = loop %}
+            {% set date_object = date|str_to_datetime %}
+            {% if date_object %}
+                {% if date_object >= current_date %}
+                    <div class="{{ 'col-12 col-6-md toggle' if date_object == current_date or date_object == tomorrow else 'col-12 col-4-md toggle lazy mt-3' }}
+                    " date-atr="{{ date }}">
 
-            <div class="{{ 'col-12 col-6-md toggle' if outer_loop.index == 1 or outer_loop.index == 2 else 'col-12 col-4-md toggle lazy mt-3' }}
-            " date-atr="{{ date }}">
+                        <h3 class="text-dark">{{ date }} {{ '- dzisiaj' if date_object == current_date else '- jutro' if date_object == tomorrow else '' }}</h3>
 
-                <h3>{{ date }} {{ '- dzisiaj' if outer_loop.index == 1 else '- jutro' if outer_loop.index == 2 else '' }}</h3>
+                        {% if date_object == current_date or date_object == tomorrow %}
+                            {% for event in events %}
+                                <div class="card mb-1">
+                                    <a href="{{ event.event_link }}" target="_blank">{{ event.event_title }}</a>
+                                    <span class="tag bd-grey text-dark is-small">{{ event.event_place }}</span>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                        
+                        {% if date_object >= after_tomorrow %}
+                            <ul class="events angle-type-list">
+                            {% for event in events %}
+                                <li class="events__element">
+                                    <a href="{{ event.event_link }}" target="_blank">{{ event.event_title }}</a>
+                                    <span class="tag bd-grey text-dark is-small">{{ event.event_place }}</span>
+                                </p>
+                            {% endfor %}
+                            </ul>
+                        {% endif %}
 
-                {% if outer_loop.index == 1 or outer_loop.index == 2 %}
-                    {% for event in events %}
-                        <div class="card mb-1">
-                            <a href="{{ event.event_link }}" target="_blank">{{ event.event_title }}</a>
-                            <span class="tag bd-grey text-dark is-small">{{ event.event_place }}</span>
-                        </div>
-                    {% endfor %}
+                    </div>
+                    {% if loop.index == 1 and loop.index % 3 == 0 %}
+                    </div>
+                    <div class="row">
+                    {% endif %}
                 {% endif %}
-                {% if outer_loop.index > 2 %}
-                    <ul class="events angle-type-list">
-                    {% for event in events %}
-                        <li class="events__element">
-                            <a href="{{ event.event_link }}" target="_blank">{{ event.event_title }}</a>
-                            <span class="tag bd-grey text-dark is-small">{{ event.event_place }}</span>
-                        </p>
-                    {% endfor %}
-                    </ul>
-                {% endif %}
-
-            </div>
-            {% if loop.index == 1 and loop.index % 3 == 0 %}
-            </div>
-            <div class="row">
             {% endif %}
         {% endfor %}
     </div>
