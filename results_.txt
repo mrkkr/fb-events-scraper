@@ -1,6 +1,0 @@
-1 ThreadPoolExecutor -> 8947 (z duplikatami)
-3 ThreadPoolExecutor -> 8423 (bez duplikatów) - duplikaty są jednak
-1 ThreadPoolExecutor -> 8795 (bez duplikatów)
-3 ThreadPoolExecutor -> 8983 (bez duplikatów) - duplikaty są jednak - 862 sekund
-1 ThreadPoolExecutor -> 8539 (bez duplikatów) - 1639 sekund
-2 ThreadPoolExecutor (nowa wersja) -> 337 ?? - 897 sekund
