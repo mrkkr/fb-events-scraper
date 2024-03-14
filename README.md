@@ -12,4 +12,4 @@ With this script you can scrape events from your liked facebook pages to one fil
 ### Additional information:
 1. Scraper data are stored in `events_data.json` file
 2. Main key for scraped dict date is date in format `DD/MM/YY`
-3. If you have problem with running webdriver from `seleniumwire` you can try use webdriver from `selenium` using `from seleniumwire import webdriver`
+3. If you have problem with running webdriver from `seleniumwire` you can try use webdriver from `selenium` using `from selenium import webdriver`
