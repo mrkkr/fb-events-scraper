@@ -1,415 +1,633 @@
+"""
+Facebook Events Scraper Module.
+
+This module provides functionality to scrape events from Facebook pages
+using Playwright for browser automation and BeautifulSoup for HTML parsing.
+"""
+
 import csv
 import json
 import logging
-import re
-import time
-import traceback
+import asyncio
+from pathlib import Path
+from typing import Dict, List
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
-from datetime import datetime
-from seleniumwire import webdriver
-from selenium.common.exceptions import NoSuchElementException
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse, urlunparse
+from playwright.async_api import async_playwright, Page
 
-
-class EventScraper:
-    def __init__(self, csv_file):
-        """
-        Initializes the scraper with necessary variables and configurations.
-        :param csv_file: Path to the CSV file for storing scraped data.
-        """
-        # CSV file with URLs
-        self.CSV_FILE = csv_file
-
-        # Define CSS class selectors for scraping content using both Selenium and BeautifulSoup
-        self.CLASS_TO_SCRAPE_SELENIUM = "div.x6s0dn4.x1lq5wgf.xgqcy7u.x30kzoy.x9jhf4c.x1olyfxc.x9f619.x78zum5.x1e56ztr.xyamay9.x1pi30zi.x1l90r2v.x1swvt13.x1gefphp"
-        self.CLASS_TO_SCRAPE_BS4 = "x6s0dn4 x1lq5wgf xgqcy7u x30kzoy x9jhf4c x1olyfxc x9f619 x78zum5 x1e56ztr xyamay9 x1pi30zi x1l90r2v x1swvt13 x1gefphp"
-        self.COOKIE_CONSENT_CSS_CLASS = ".x9f619.x1n2onr6.x1ja2u2z.x78zum5.xdt5ytf.x193iq5w.xeuugli.x1iyjqo2.xs83m0k.x150jy0e.x1e558r4.xjkvuk6.x1iorvi4.xdl72j9"
-        self.LOGIN_PROMPT_CSS_CLASS = ".x1i10hfl.x1ejq31n.xd10rxx.x1sy0etr.x17r0tee.x1ypdohk.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.x16tdsg8.x1hl2dhg.xggy1nq.x87ps6o.x1lku1pv.x1a2a7pz.x6s0dn4.x14yjl9h.xudhj91.x18nykt9.xww2gxu.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x78zum5.xl56j7k.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1n2onr6.xc9qbxq.x14qfxbe.x1qhmfi1"
-        # Event parts elements to scrap by BS4
-        self.EVENT_DATE_ELEMENT_CSS_CLASS = "x193iq5w xeuugli x13faqbe x1vvkbs x10flsy6 x1lliihq x1s928wv xhkezso x1gmr53x x1cpjm7i x1fgarty x1943h6x x1tu3fi x3x7a5m x1nxh6w3 x1sibtaa xo1l8bm xzsf02u x1yc453h"
-        self.EVENT_DATE_CSS_CLASS = "x1lliihq x6ikm8r x10wlt62 x1n2onr6 xlyipyv xuxw1ft"
-        self.EVENT_LINK = "x1i10hfl xjbqb8w x1ejq31n xd10rxx x1sy0etr x17r0tee x972fbf xcfux6l x1qhh985 xm0m39n x9f619 x1ypdohk xt0psk2 xe8uvvx xdj266r x11i5rnm xat24cr x1mh8g0r xexx8yu x4uap5 x18d9i69 xkhd6sd x16tdsg8 x1hl2dhg xggy1nq x1a2a7pz x1heor9g xt0b8zv x1s688f"
-        self.EVENT_PLACE_PARENT = "x1gslohp"
-        self.EVENT_BY_PLACE = "x1i10hfl xjbqb8w x1ejq31n xd10rxx x1sy0etr x17r0tee x972fbf xcfux6l x1qhh985 xm0m39n x9f619 x1ypdohk xt0psk2 xe8uvvx xdj266r x11i5rnm xat24cr x1mh8g0r xexx8yu x4uap5 x18d9i69 xkhd6sd x16tdsg8 x1hl2dhg xggy1nq x1a2a7pz xt0b8zv xi81zsa x1s688f"
-
-        # Setup logging to file for error tracking and debugging
-        self.logger = logging.getLogger(__name__)
-        logging.basicConfig(filename="scraping.log", level=logging.WARNING)
-
-        # Flag to track whether popups have been dismissed
-        self.popups_dismissed = False
-
-        # start driver only one time during instance
-        self.start_driver()
-
-        # calculate time
-        self.start_time = None
-        self.end_time = None
-
-
-    def remove_query_string(self, url):
-        """
-        Cleans URLs by removing the query string.
-        :param url: The original URL with a possible query string.
-        :return: The URL without the query string.
-        """
-        parsed_url = urlparse(url)
-        cleaned_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, '', '', ''))
-        return cleaned_url
-
-
-    def convert_dates(self, date_string):
-        """
-        Converts Polish date strings into a standardized date format.
-        :param date_string: The original date string in Polish format.
-        :return: The date in 'DD/MM/YY' format.
-        """
-        # empty formatted date
-        formatted_date = ""
-        # Remove everything after "o" letter if it exists
-        date_string = date_string.split(" o ")[0]
-        # Remove leading and trailing whitespaces
-        date_string = date_string.strip()
-        
-        # Dictionary mapping Polish month abbreviations to their numeric equivalents
-        months_polish = {
-            "sty": 1,
-            "lut": 2,
-            "mar": 3,
-            "kwi": 4,
-            "maj": 5,
-            "cze": 6,
-            "lip": 7,
-            "sie": 8,
-            "wrz": 9,
-            "paź": 10,
-            "lis": 11,
-            "gru": 12
+class FacebookEventScraper:
+    """
+    Facebook events scraper using Playwright.
+    
+    This class handles the entire scraping process including:
+    - Browser automation with Playwright
+    - HTML parsing with BeautifulSoup
+    - Date conversion and standardization
+    - Event data extraction and storage
+    """
+    
+    # CSS Selectors for various Facebook elements
+    SELECTORS = {
+        'cookie_consent': '.x1i10hfl.xjbqb8w.x1ejq31n.xd10rxx.x1sy0etr.x17r0tee.x972fbf.xcfux6l.x1qhh985.xm0m39n.x1ypdohk.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x16tdsg8.x1hl2dhg.xggy1nq',
+        'login_prompt': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x1ypdohk.xdl72j9',
+        'event': {
+            'wrapper': '.x6s0dn4.x1lq5wgf.xgqcy7u.x30kzoy.x9jhf4c.x1olyfxc.x9f619.x78zum5.x1e56ztr.xyamay9.x1pi30zi.x1l90r2v.x1swvt13.x1gefphp',
+            'link': 'a[href*="/events/"]',
+            'date': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft',
+            'title': '.html-span.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1hl2dhg.x16tdsg8.x1vvkbs',
+            'place_element': '.x1gslohp > div:first-child',
+            'place_container': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
+            'date_element': '.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x1tu3fi.x3x7a5m.x1nxh6w3.x1sibtaa.xo1l8bm.xzsf02u.x1yc453h',
         }
+    }
+
+    # Month name to number mapping
+    MONTHS = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+    }
+
+    def __init__(self, csv_file: str) -> None:
+        """
+        Initialize the scraper.
+
+        Args:
+            csv_file (str): Path to CSV file containing Facebook page URLs
+        """
+        self.csv_file = Path(csv_file)
+        self.logger = self._setup_logger()
+        self.popups_dismissed = False
+        self.processed_urls = set()
+
+    async def scrape_events(self) -> None:
+        """
+        Main method to orchestrate the scraping process.
         
-        # Check if there's a range of dates (indicated by "-") and trasform to format: dd month - dd month
-        if "–" in date_string:
-            date_array = date_string.split("–")
-            if len(date_array) > 0:
-                date_array[0] = date_array[0].split(' ', 1)[1].strip()
-                formatted_date = (" –").join(date_array)
-        else:
-            try:
-                # Extract day, month abbreviation, and year from the date string parts
-                # Split the date string by comma
-                parts = date_string.split(",")
-                if len(parts) >= 2:
-                    day_str, rest = parts[1].strip().split()
-                    day_num = int(day_str)
-                    month_str = rest.split()[0].lower()[:3]  # Convert month abbreviation to lowercase
-                else:
-                    formatted_date = date_string
-                    raise ValueError("Date string does not contain expected parts")
-            except ValueError:
-                return "Brak daty" # formatted_date = "Brak Daty"
-
-            # Convert month abbreviation to its numeric equivalent
-            month = months_polish.get(month_str)
-
-            # Convert the date string to a formatted date
-            formatted_date = f"{day_num:02d}/{month:02d}/24"
-
-        return formatted_date
-
-
-    def scroll_down_page(self, driver):
+        This method:
+        1. Reads URLs from CSV
+        2. Initializes Playwright browser
+        3. Processes URLs in batches
+        4. Merges and saves results
         """
-        Scrolls to the bottom of a dynamically loading webpage to ensure all content is loaded.
-        :param driver: The Selenium WebDriver instance.
-        """
-        last_height = 0
-
-        while True:
-            # Scroll down to the bottom of the page
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)  # Wait for new content to load
-
-            # Calculate new scroll height and compare with last scroll height
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break  # Break the loop when the bottom of the page is reached
-            last_height = new_height
-
-
-    def dismiss_popups(self, driver):
-        """
-        Dismisses cookie consent popup and login prompt that may appear on the webpage.
-        This function aims to ensure that these popups do not interfere with the scraping process
-        by explicitly looking for and clicking the dismissal buttons.
-
-        :param driver: The Selenium WebDriver instance used for navigating and interacting with web pages.
-        """
-
-        # Attempt to dismiss the cookie consent popup if it appears
-        if not self.popups_dismissed:
-            # Attempt to dismiss the cookie consent popup if it appears
-            try:
-                # Locate the accept button for cookie consent using its CSS selector
-                accept_cookie_button = driver.find_element(By.CSS_SELECTOR, self.COOKIE_CONSENT_CSS_CLASS)
-                # Click the accept button to dismiss the cookie consent popup
-                accept_cookie_button.click()
-            except NoSuchElementException:
-                self.logger.warning("Cookie consent popup not found")
-                # Print the full traceback to help diagnose the issue
-                traceback.print_exc()
-
-            # Update the flag to indicate that popups have been dismissed
-            self.popups_dismissed = True
-
-        # Attempt to dismiss the login prompt if it appears
-        try:
-            # Locate the close button for the login prompt using its CSS selector
-            close_login_prompt = driver.find_element(By.CSS_SELECTOR, self.LOGIN_PROMPT_CSS_CLASS)
-            # Click the close button to dismiss the login prompt
-            close_login_prompt.click()
-        except NoSuchElementException:
-            self.logger.warning("Login prompt popup not found")
-            # Print the full traceback to help diagnose the issue
-            traceback.print_exc()
-
-
-    def scrape_page(self, url):
-        """
-        Processes each URL by loading the page in a Selenium WebDriver, extracting data,
-        and returning the structured data.
-        :param url: The URL to process and scrape data from.
-        :return: A dictionary of extracted data keyed by date.
-        """
-        driver = self.driver # Initialize the driver variable
-
-        try:
-            # Configure and initialize the Selenium WebDriver
-            driver.get(url)
-            time.sleep(2)
-            print(f"url: {url}")
-
-            # Dismiss any pop-ups or consent modals that may interfere with page content access
-            self.dismiss_popups(driver)
-
-            # Scroll down the page to trigger loading of all dynamic content
-            self.scroll_down_page(driver)
-
-            # Step 1: Check if elements are present immediately after page load
-            if not driver.find_elements(By.CSS_SELECTOR, self.CLASS_TO_SCRAPE_SELENIUM):
-                # Step 2: Wait for the page to fully load and then recheck
-                try:
-                    WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, self.CLASS_TO_SCRAPE_SELENIUM)))
-                except TimeoutException:
-                    self.logger.info(f"No events found on the Facebook page: {url}")
-                    extracted_contents = {}  # Return an empty dictionary to indicate no events
-            page_source = driver.page_source
-            extracted_contents = self.create_soup(page_source)
-            if not extracted_contents:
-                self.logger.warning(f"No content extracted from {url}")
-        except Exception as e:
-            self.logger.error(f"Error processing URL {url}: {e}")
-            traceback.print_exc()
-            extracted_contents = {}
-        return extracted_contents
-
-
-    def scrape_subpages(self, urls):
-        """
-        Main method to control the scraping process. It reads URLs from a CSV file,
-        iterates over them, and scrapes data using multiple threads for efficiency.
+        urls = self._read_urls()
+        self.logger.info(f"Starting to scrape {len(urls)} URLs")
         
-        Parameters:
-            urls (list): List of URLs to scrape data from.
-        """
-        # Initialize a dictionary to store all scraped events
-        all_events_obj = {}
-        
-        # Use ThreadPoolExecutor to execute scraping tasks concurrently
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            # Map each URL to the scrape_page function and execute asynchronously
-            results = list(executor.map(self.scrape_page, urls))
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--window-size=1920,1080',
+                ]
+            )
             
-            # Iterate over the results of scraping each URL
-            for result in results:
-                # Extract the date and events from the result
-                for date, events in result.items():
-                    # Extend the events list if the date already exists in the dictionary,
-                    # otherwise, add a new entry for the date
-                    if date in all_events_obj:
-                        all_events_obj[date].extend(events)
-                    else:
-                        all_events_obj[date] = events
-                        
-        # Sort the events by date and save them to a JSON file
-        self.sort_and_save_data_to_file(all_events_obj, "events_data.json")
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US',
+                timezone_id='Europe/Warsaw',
+                permissions=['geolocation'],
+                java_script_enabled=True,
+            )
 
-
-    def create_soup(self, page_source):
-        """
-        Parses the page source with BeautifulSoup to extract relevant event information.
-        :param page_source: The HTML content of the page.
-        :return: A dictionary of events categorized by date.
-        """
-        try:
-            soup = BeautifulSoup(page_source, "html.parser")
-            contents = soup.find_all("div", class_=self.CLASS_TO_SCRAPE_BS4)
-            # create extracted object with event details
-            extracted_events = {}
-
-            # loop through events
-            for content in contents:
-                # defines particular event elements
-                event_date_element = content.find("span", class_ = self.EVENT_DATE_ELEMENT_CSS_CLASS)
-                event_date = event_date_element.find("span", class_ = self.EVENT_DATE_CSS_CLASS).text if event_date_element else "No Date Available"
-                converted_event_date = self.convert_dates(event_date)
-                event_link = content.find("a", class_ = self.EVENT_LINK)["href"]
-                event_title = content.find("a", class_=self.EVENT_LINK).find("span", class_="").text
-                event_place_parent = content.find('div', class_ = self.EVENT_PLACE_PARENT)
-                # calculate event place based on conditions
-                event_place = ""
-                event_by_place_css_class = self.EVENT_BY_PLACE
-                if event_place_parent.find('a', class_ = event_by_place_css_class):
-                    event_place = event_place_parent.find('a', class_ = event_by_place_css_class).text
+            # Add debug logging
+            context.set_default_timeout(60000)
+            page = await context.new_page()
+            await page.route("**/*", lambda route: route.continue_())
+            
+            try:
+                # Reduce batch size and increase timeouts
+                batch_size = 3  # Reduced from 5
+                results = []
+                
+                for i in range(0, len(urls), batch_size):
+                    batch = urls[i:i + batch_size]
+                    self.logger.info(f"Processing batch {i//batch_size + 1}/{len(urls)//batch_size + 1}")
+                    
+                    # Process each URL with individual error handling
+                    batch_results = []
+                    for url in batch:
+                        try:
+                            result = await self._scrape_page_with_retry(context, url)
+                            batch_results.append(result)
+                        except Exception as e:
+                            self.logger.error(f"Failed to process {url}: {str(e)}")
+                            batch_results.append({})
+                    
+                    results.extend(batch_results)
+                    # Increased delay between batches
+                    await asyncio.sleep(5)  # Increased from 2
+                    
+                events = self._merge_results(results)
+                if not events:
+                    self.logger.warning("No events were found!")
                 else:
-                    event_place = content.find('div', class_='x1gslohp').find('div').get_text(strip=True)
+                    self.logger.info(f"Found {sum(len(e) for e in events.values())} events")
+                self._save_events(events)
+            finally:
+                await context.close()
+                await browser.close()
 
-                # local event
-                local_event_object = {
-                    "event_title": event_title,
-                    "event_link": self.remove_query_string(event_link),
-                    "event_place": event_place
-                }
+    async def _scrape_page_with_retry(self, context, url: str, max_retries: int = 3) -> Dict:
+        """
+        Attempt to scrape a page with exponential backoff retries.
 
-                # Check if date exists in main events object
-                if converted_event_date not in extracted_events:
-                    extracted_events[converted_event_date] = []
+        Args:
+            context: Playwright browser context
+            url (str): Target Facebook page URL
+            max_retries (int): Maximum number of retry attempts
 
-                # Check if the event link already exists for this date
-                existing_links = {event['event_link'] for event in extracted_events[converted_event_date]}
-                if local_event_object['event_link'] not in existing_links:
-                    extracted_events[converted_event_date].append(local_event_object)
+        Returns:
+            Dict: Extracted events data or empty dict if failed
+        """
+        for attempt in range(max_retries):
+            try:
+                return await self._scrape_page(context, url)
+            except Exception as e:
+                self.logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {str(e)}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(10 * (attempt + 1))  # Increased backoff time
+                else:
+                    self.logger.error(f"Failed to scrape {url} after {max_retries} attempts")
+                    return {}
+
+    async def _scrape_page(self, context, url: str) -> Dict:
+        """Scrape events from a single page."""
+        page = await context.new_page()
+        try:
+            self.logger.info(f"Processing: {url}")
+            
+            await page.goto(url, wait_until='networkidle', timeout=30000)
+            await self._handle_popups(page)
+            await page.wait_for_timeout(2000)
+            
+            try:
+                # Look for event links directly
+                event_titles = await page.query_selector_all(self.SELECTORS['event']['title'])
+                if len(event_titles) > 0:
+                    self.logger.info(f"Found {len(event_titles)} potential event titles on {url}")
+                    
+                    # Debug: Print first few titles
+                    for i, title in enumerate(event_titles[:3]):
+                        title_text = await title.text_content()
+                        self.logger.debug(f"Sample title {i+1}: {title_text}")
+                    
+                    await self._scroll_page(page)
+                else:
+                    self.logger.warning(f"No event titles found on {url}")
+                    return {}
+
+            except Exception as e:
+                self.logger.error(f"Error finding events: {str(e)}")
+                return {}
+
+            content = await page.content()
+            self.logger.debug(f"Page content length: {len(content)} characters")
+            events = self._parse_content(content, url)
+            
+            return events
 
         except Exception as e:
-            self.logger.error(f"Error creating soup: {e}")
-            traceback.print_exc()
+            self.logger.error(f"Error processing {url}: {str(e)}")
+            return {}
+        finally:
+            await page.close()
+
+    async def _handle_popups(self, page: Page) -> None:
+        """Handle various popups that might appear."""
+        try:
+            # Increased timeout for popup handling
+            timeout = 15000  # Increased from 10000
+            
+            # Handle cookie consent with force option
+            try:
+                cookie_button = await page.wait_for_selector(
+                    self.SELECTORS['cookie_consent'],
+                    state="attached",
+                    timeout=timeout
+                )
+                if cookie_button:
+                    await page.evaluate("""
+                        (selector) => {
+                            const elements = document.querySelectorAll(selector);
+                            for (const el of elements) {
+                                if (el.innerText.includes('Allow all cookies')) {
+                                    el.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+                    """, self.SELECTORS['cookie_consent'])
+                    self.logger.info("✓ Cookie consent clicked using JavaScript")
+                    await page.wait_for_timeout(2000)
+            except Exception as e:
+                self.logger.warning(f"Cookie consent error: {str(e)}")
+
+            # Handle login prompt with force option
+            try:
+                close_button = await page.wait_for_selector(
+                    self.SELECTORS['login_prompt'],
+                    state="attached",
+                    timeout=timeout
+                )
+                if close_button:
+                    await page.evaluate("""
+                        (selector) => {
+                            const elements = document.querySelectorAll(selector);
+                            for (const el of elements) {
+                                if (el.getAttribute('aria-label') === 'Close') {
+                                    el.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+                    """, self.SELECTORS['login_prompt'])
+                    self.logger.info("✓ Login prompt clicked using JavaScript")
+                    await page.wait_for_timeout(2000)
+            except Exception as e:
+                self.logger.warning(f"Login prompt error: {str(e)}")
+            
+        except Exception as e:
+            self.logger.error(f"Popup handling error: {str(e)}")
+
+    async def _wait_for_content(self, page: Page) -> None:
+        """Wait for the main content to load."""
+        try:
+            # Wait for event title elements to appear
+            await page.wait_for_selector(self.SELECTORS['event']['title'], timeout=30000)
+            event_titles = await page.query_selector_all(self.SELECTORS['event']['title'])
+            if len(event_titles) > 0:
+                self.logger.info(f"✓ Found {len(event_titles)} potential events")
+            else:
+                self.logger.info("No events found on page")
+            
+            await page.wait_for_timeout(2000)
+            
+        except Exception as e:
+            self.logger.error(f"Content loading error: {str(e)}")
+            raise
+
+    async def _scroll_page(self, page: Page) -> None:
+        """Scroll down the page to load all content."""
+        try:
+            last_event_count = 0
+            no_new_events_count = 0
+            max_no_new_events = 3  # Stop if no new events found after 3 scrolls
+            
+            for scroll in range(10):  # Maximum 10 scrolls
+                await page.evaluate("window.scrollBy(0, 800)")
+                await page.wait_for_timeout(1000)
+                
+                events = await page.query_selector_all(self.SELECTORS['event']['title'])
+                current_count = len(events)
+                
+                if current_count == last_event_count:
+                    no_new_events_count += 1
+                    if no_new_events_count >= max_no_new_events:
+                        self.logger.info(f"No new events found after {no_new_events_count} scrolls")
+                        break
+                else:
+                    no_new_events_count = 0
+                    
+                last_event_count = current_count
+                self.logger.debug(f"Found {current_count} events after scroll {scroll + 1}")
+                
+        except Exception as e:
+            self.logger.debug(f"Scrolling error (non-critical): {str(e)}")
+
+    def _merge_results(self, results: List[Dict]) -> Dict:
+        """
+        Merge events from multiple pages into a single dictionary, removing duplicates.
+        
+        Args:
+            results: List of dictionaries containing events by date
+        
+        Returns:
+            Dict: Merged events grouped by date with duplicates removed
+        """
+        merged = {}
+        seen_events = set()  # Track unique events using title+date+link combination
+        
+        for result in results:
+            for date, events in result.items():
+                if date not in merged:
+                    merged[date] = []
+                
+                for event in events:
+                    # Create unique identifier for event
+                    event_id = f"{event['event_title']}|{date}|{event['event_link']}"
+                    
+                    if event_id not in seen_events:
+                        merged[date].append(event)
+                        seen_events.add(event_id)
+                        self.logger.debug(f"Added unique event: {event['event_title']} on {date}")
+                    else:
+                        self.logger.debug(f"Skipped duplicate event: {event['event_title']} on {date}")
+        
+        # Remove dates with empty event lists
+        merged = {date: events for date, events in merged.items() if events}
+        
+        self.logger.info(f"Merged results: {len(seen_events)} unique events across {len(merged)} dates")
+        return merged
+
+    def _parse_content(self, content: str, url: str) -> Dict:
+        """Parse HTML content using BeautifulSoup."""
+        events = {}
+        soup = BeautifulSoup(content, 'html.parser')
+        
+        # Find all event titles
+        event_titles = soup.select(self.SELECTORS['event']['title'])
+        self.logger.debug(f"BeautifulSoup found {len(event_titles)} event titles")
+        
+        events_found = 0
+        events_skipped = 0
+        
+        for idx, title_element in enumerate(event_titles, 1):
+            self.logger.debug(f"Processing event {idx}/{len(event_titles)} on {url}")
+            
+            parent = title_element.parent
+            self.logger.debug(f"Parent HTML: {parent.prettify()[:200]}...")
+            
+            event_data = self._extract_event_data(parent)
+            if event_data:
+                # Create unique key using title + date instead of just URL
+                event_key = f"{event_data['title']}_{event_data['date']}"
+                
+                if event_data['date'] not in events:
+                    events[event_data['date']] = []
+                
+                # Add event even if title exists but date is different
+                events[event_data['date']].append({
+                    'event_title': event_data['title'],
+                    'event_link': event_data['link'],
+                    'event_place': event_data['place']
+                })
+                events_found += 1
+                self.logger.info(f"✓ Found event #{events_found}: {event_data['title']} at {event_data['place']} on {event_data['date']}")
+            else:
+                self.logger.debug(f"Failed to extract data for event {idx}")
+
+        self.logger.info(f"Page summary for {url}:")
+        self.logger.info(f"- Total titles found: {len(event_titles)}")
+        self.logger.info(f"- Successfully extracted: {events_found}")
+        self.logger.info(f"- Skipped duplicates: {events_skipped}")
+        self.logger.info(f"- Failed to extract: {len(event_titles) - events_found - events_skipped}")
+        
+        return events
+
+    def _extract_event_data(self, container) -> Dict:
+        """
+        Extract event data from HTML container.
+
+        Extracts the following information:
+        - Event title
+        - Event link/URL
+        - Event date
+        - Event location/place
+
+        Args:
+            container: BeautifulSoup element containing event information
+
+        Returns:
+            Dict: Event data or empty dict if extraction fails
+        """
+        try:
+            # Get the root wrapper - going up to find the main event container
+            root = container
+            while root and (root.name != 'div' or 'x6s0dn4' not in root.get('class', [])):
+                root = root.parent
+
+            if not root:
+                self.logger.debug("[ROOT] Could not find root container with class x6s0dn4")
+                return {}
+
+            # Find title - it's in a span with html-span and xdj266r classes
+            title = None
+            title_span = root.find('span', class_=lambda x: x and 'html-span' in x and 'xdj266r' in x)
+            if title_span:
+                title = title_span.text.strip()
+                self.logger.debug(f"[TITLE] Found: '{title}'")
+            else:
+                self.logger.debug("[TITLE] No title element found")
+                return {}
+
+            # Find event link
+            link = None
+            link_element = root.find('a', href=lambda x: x and '/events/' in x)
+            if link_element:
+                link = self._clean_url(link_element['href'])
+                self.logger.debug(f"[LINK] Found: {link}")
+            else:
+                self.logger.debug("[LINK] No event link found")
+                return {}
+
+            # Extract date - looking for specific span structure
+            date = None
+            date_span = root.find('span', class_=lambda x: x and 'x1lliihq' in x and 'xuxw1ft' in x)
+            if date_span:
+                raw_date = date_span.get_text(strip=True)
+                self.logger.debug(f"[DATE] Raw text: '{raw_date}'")
+                date = self._convert_date(raw_date)
+                self.logger.debug(f"[DATE] Converted to: '{date}'")
+
+            # Extract place - try both possible structures
+            place = None
+            # First try the primary structure with x1gslohp class
+            place_div = root.find('div', class_='x1gslohp')
+            if place_div:
+                first_div = place_div.find('div')
+                if first_div:
+                    place_text = ''
+                    for content in first_div.contents:
+                        if isinstance(content, str):
+                            place_text += content
+                        elif content.name == 'span':
+                            break
+                    place = place_text.strip()
+                    self.logger.debug(f"[PLACE] Found from primary structure: '{place}'")
+
+            # If no place found, try alternative structure with link element
+            if not place:
+                place_link = root.find('a', class_=lambda x: x and all(cls in x for cls in [
+                    'x1i10hfl', 'xjbqb8w', 'x1ejq31n', 'xd10rxx', 'x1sy0etr', 
+                    'x17r0tee', 'x972fbf', 'xcfux6l', 'x1qhh985', 'xm0m39n', 
+                    'x9f619', 'x1ypdohk', 'xt0psk2', 'xe8uvvx', 'xdj266r', 
+                    'x11i5rnm', 'xat24cr', 'x1mh8g0r', 'xexx8yu', 'x4uap5', 
+                    'x18d9i69', 'xkhd6sd', 'x16tdsg8', 'x1hl2dhg', 'xggy1nq',
+                    'x1a2a7pz', 'xkrqix3', 'x1sur9pj', 'xi81zsa', 'x1s688f'
+                ]))
+                if place_link:
+                    place = place_link.get_text(strip=True)
+                    self.logger.debug(f"[PLACE] Found from alternative structure: '{place}'")
+
+            if not place:
+                place = "No location"
+                self.logger.debug("[PLACE] Using default location - no structure matched")
+
+            # Only return if we have essential data
+            if title and link:
+                event_data = {
+                    'date': date or "Date TBD",
+                    'link': link,
+                    'title': title,
+                    'place': place
+                }
+                self.logger.info(f"[EVENT] Extracted: {title} @ {place} on {date}")
+                return event_data
+
             return {}
 
-        return extracted_events
+        except Exception as e:
+            self.logger.debug(f"[ERROR] Extracting event data: {str(e)}")
+            return {}
 
+    def _clean_url(self, url: str) -> str:
+        """Clean Facebook event URL."""
+        if '?' in url:
+            url = url.split('?')[0]
+        if 'facebook.com' not in url:
+            url = f"https://facebook.com{url}"
+        return url
 
-    def convert_to_date(self, date_str):
+    def _convert_date(self, date_string: str) -> str:
         """
-        Converts a date string to a datetime object.
-        :param date_str: The date string to convert.
-        :return: The datetime object representing the date.
+        Convert Facebook date string to standardized format.
         """
+        try:
+            if not date_string:
+                return "Date TBD"
+
+            self.logger.debug(f"[DATE] Converting: '{date_string}'")
+            date_string = date_string.strip().lower()
+
+            # Get current time in Warsaw timezone (UTC+1)
+            warsaw_tz = datetime.now(timezone(timedelta(hours=1)))
+            current_year = warsaw_tz.year
+            today = warsaw_tz.date()
+
+            # Handle special cases (happening now, today, tomorrow)
+            if "happening now" in date_string:
+                result = today.strftime("%d/%m/%Y")
+                self.logger.debug(f"[DATE] Happening now -> {result}")
+                return result
+            if "today" in date_string:
+                result = today.strftime("%d/%m/%Y")
+                self.logger.debug(f"[DATE] Today -> {result}")
+                return result
+            if "tomorrow" in date_string:
+                result = (today + timedelta(days=1)).strftime("%d/%m/%Y")
+                self.logger.debug(f"[DATE] Tomorrow -> {result}")
+                return result
+
+            # Parse standard date format: "Fri, Mar 15 at 8:00 PM CET"
+            try:
+                # Remove time portion and clean up
+                date_part = date_string.split(" at ")[0]
+                if ',' in date_part:
+                    date_part = date_part.split(',')[1].strip()
+
+                # Parse "Mar 15" format
+                parts = date_part.split()
+                if len(parts) >= 2:
+                    month = parts[0][:3].title()  # Capitalize first three letters
+                    day = int(parts[1])
+                    
+                    if month in self.MONTHS:
+                        month_num = self.MONTHS[month]
+                        
+                        # Determine year based on date
+                        event_date = datetime(current_year, month_num, day)
+                        if event_date.date() < today:
+                            # If event date is in the past, it's probably next year
+                            event_date = datetime(current_year + 1, month_num, day)
+                        
+                        result = event_date.strftime("%d/%m/%Y")
+                        self.logger.debug(f"[DATE] Successfully converted to: {result}")
+                        return result
+
+                self.logger.debug(f"[DATE] Failed to parse parts: {parts}")
+            except Exception as e:
+                self.logger.debug(f"[DATE] Error parsing standard format: {str(e)}")
+
+            return "Date TBD"
+
+        except Exception as e:
+            self.logger.debug(f"[DATE] Conversion error: {str(e)}")
+            return "Date TBD"
+
+    def _setup_logger(self) -> logging.Logger:
+        """Setup logger for the scraper."""
+        logger = logging.getLogger(__name__)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)  # Changed to DEBUG to see more details
+        return logger
+
+    def _read_urls(self) -> List[str]:
+        """Read URLs from CSV file."""
+        urls = []
+        with open(self.csv_file, "r") as csvfile:
+            reader = csv.reader(csvfile)
+            next(reader)
+            for row in reader:
+                urls.extend(row)
+        return urls
+
+    async def _dismiss_popups(self, page: Page) -> None:
+        """Dismiss popups on the page."""
+        if not self.popups_dismissed:
+            try:
+                await page.click(self.SELECTORS['cookie_consent'])
+            except:
+                self.logger.warning("Cookie consent popup not found")
+            self.popups_dismissed = True
+        try:
+            await page.click(self.SELECTORS['login_prompt'])
+        except:
+            self.logger.warning("Login prompt popup not found")
+
+    def _save_events(self, events: Dict) -> None:
+        """
+        Save events to JSON file with proper date sorting.
+        """
+        # Convert string dates to datetime objects for proper sorting
+        events_with_dates = {
+            (datetime.strptime(date, "%d/%m/%Y") if date != "Date TBD" else datetime.max): events
+            for date, events in events.items()
+        }
+        
+        # Sort by date
+        sorted_events = dict(sorted(events_with_dates.items()))
+        
+        # Convert back to string format
+        sorted_events_str = {
+            key.strftime("%d/%m/%Y") if key != datetime.max else "Date TBD": value
+            for key, value in sorted_events.items()
+        }
+        
+        # Save to file
+        with open("events_data.json", "w", encoding="utf-8") as output:
+            json.dump(sorted_events_str, output, ensure_ascii=False, indent=4)
+
+    def _convert_to_date(self, date_str: str) -> datetime:
+        """Convert date string to datetime object."""
         try:
             return datetime.strptime(date_str, '%d/%m/%y')
         except ValueError:
             return None
 
-
-    def sort_and_save_data_to_file(self, all_events_obj, filename):
-        """
-        Sorts the events object by date in ascending order and saves it to a JSON file.
-        
-        Parameters:
-            all_events_obj (dict): The events object to be saved.
-            filename (str): The name of the JSON file to save the object to.
-        """
-        try:
-            # Sort the dictionary by date
-            sorted_events_obj = dict(sorted(all_events_obj.items(), key=lambda item: self.convert_to_date(item[0]) or datetime.max))
-
-            # Convert keys back to strings
-            sorted_events_obj_str = {key.strftime('%d/%m/%y') if isinstance(key, datetime) else key: value for key, value in sorted_events_obj.items()}
-
-            # Save the sorted events object to a JSON file
-            with open(filename, "w", encoding="utf-8") as output:
-                json.dump(sorted_events_obj, output, ensure_ascii=False, indent=4)
-        except Exception as e:
-            self.logger.error(f"Error saving data to file: {e}")
-
-
-    def set_chrome_options(self):
-        """
-        Configures Chrome options for the Selenium WebDriver to optimize scraping efficiency and effectiveness.
-        :return: Configured ChromeOptions object.
-        """
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-popup-blocking")
-        options.add_argument("--disable-default-apps")
-        options.add_argument("--disable-infobars")
-        options.add_argument("--disable-web-security")
-        options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-        options.add_argument("--enable-features=NetworkService,NetworkServiceInProcess")
-        options.add_argument("--profile-directory=Default")
-        options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        return options
-
-
-    def start_driver(self):
-        """
-        Initializes and starts the Chrome WebDriver with configured options.
-        """
-        # Set Chrome options
-        options = self.set_chrome_options()
-        # Initialize Chrome WebDriver
-        self.driver = webdriver.Chrome(options=options)
-
-
-    def stop_driver(self):
-        """
-        Stops the Chrome WebDriver if it is running.
-        """
-        # Check if the driver attribute exists and is not None
-        if hasattr(self, 'driver') and self.driver:
-            # Quit the WebDriver
-            self.driver.quit()
-
-
-    def start_timer(self):
-        """
-        Start the timer.
-        """
-        self.start_time = time.time()
-
-
-    def stop_timer(self):
-        """
-        Stop the timer and calculate the elapsed time.
-        """
-        self.end_time = time.time()
-        elapsed_time = self.end_time - self.start_time
-        return elapsed_time
-
+    async def run(self):
+        """Entry point for the scraper."""
+        await self.scrape_events()
 
 if __name__ == "__main__":
-    scraper = EventScraper("my_liked_pages.csv")
-    # start timer
-    scraper.start_timer()
-
-    urls = []
-
-    with open(scraper.CSV_FILE, "r") as csvfile:
-        reader = csv.reader(csvfile)
-        next(reader)  # Skip the header row
-        for row in reader:
-            urls.extend(row)
-
-    try:
-        scraper.scrape_subpages(urls)
-    finally:
-        scraper.stop_driver()
-
-    elapsed_time = scraper.stop_timer()
-    print(f"Elapsed time: {elapsed_time} seconds")
+    scraper = FacebookEventScraper("my_liked_pages.csv")
+    asyncio.run(scraper.run())

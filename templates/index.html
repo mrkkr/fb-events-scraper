@@ -15,7 +15,9 @@
         <div class="container">
             <div class="row is-vertical-align flex-nowrap">
                 <div class="col is-marginless logo">
-                    <h1 class="title is-marginless">Warsaw Events</h1>
+                    <h1 class="title is-marginless">
+                        <a href="/">Warsaw Events</a>
+                    </h1>
                 </div>
                 <div class="col is-right is-marginless">
                     <a href="https://github.com/mrkkr/fb-events-scraper" target="_blank">
@@ -44,10 +46,13 @@
             {% set date_object = date|str_to_datetime %}
             {% if date_object %}
                 {% if date_object >= current_date %}
-                    <div class="{{ 'col-12 col-6-md toggle' if date_object == current_date or date_object == tomorrow else 'col-12 col-4-md toggle lazy mt-3' }}
-                    " date-atr="{{ date }}">
+                    <div class="{{ 'col-12 col-6-md toggle' if date_object == current_date or date_object == tomorrow else 'col-12 col-4-md toggle lazy mt-3' }}"
+                    date-atr="{{ date }}">
 
-                        <h3 class="text-dark text-center">{{ date }} {{ '- dzisiaj' if date_object == current_date else '- jutro' if date_object == tomorrow else '' }}</h3>
+                        <h3 class="text-dark text-center">
+                            {{ date }} 
+                            {{ '- dzisiaj' if date_object == current_date else '- jutro' if date_object == tomorrow else '' }}
+                        </h3>
 
                         {% for event in events %}
                             <div class="card outline dark mb-1">

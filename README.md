@@ -1,15 +1,119 @@
 # Facebook Events Scraper
-With this script you can scrape events from your liked facebook pages to one file and display it in simple Flask one-page website. 
 
-## Installation:
-1. Scrape FB Page links to CSV File. To do it I recommened using this browser extension -> [www.webscraper.io](https://www.webscraper.io)
-2. Clone repository
-3. Put your file with fb page link as `my_liked_pages.csv`
-4. Run`__init__.py`
-5. Feel free to customize Flask app in `app.py`, `templates` and `static` folder
+A Python script to scrape events from Facebook pages and display them in a simple Flask web application.
 
+## Prerequisites
 
-### Additional information:
-1. Scraper data are stored in `events_data.json` file
-2. Main key for scraped dict date is date in format `DD/MM/YY`
-3. If you have problem with running webdriver from `seleniumwire` you can try use webdriver from `selenium` using `from selenium import webdriver`
+- Python 3.8 or higher
+- pip (Python package installer)
+- Git
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/fb-events-scraper.git
+cd fb-events-scraper
+```
+
+2. Create and activate virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Linux/Mac
+# or
+.venv\Scripts\activate  # On Windows
+```
+
+3. Install required packages:
+```bash
+pip install -r requirements.txt
+```
+
+4. Install Playwright and its dependencies:
+```bash
+playwright install
+playwright install-deps
+playwright install chrome
+```
+
+## Configuration
+
+1. Create a CSV file (e.g., `my_liked_pages_test.csv`) with Facebook pages URLs:
+```csv
+url
+https://www.facebook.com/events/your-page-1
+https://www.facebook.com/events/your-page-2
+```
+
+## Usage
+
+### Running the Scraper
+
+1. Make sure your virtual environment is activated
+2. Run the scraper:
+```bash
+python -m fb_events_scraper
+```
+
+The script will:
+- Read URLs from your CSV file
+- Scrape events from each page
+- Save results to `events_data.json`
+
+### Running the Flask Web Application
+
+1. Ensure you have scraped some events first (events_data.json should exist)
+2. Start the Flask server:
+```bash
+python app.py
+```
+3. Open your browser and visit:
+```
+http://localhost:5000
+```
+
+## Flask Application Structure
+
+The web application provides a simple interface to view scraped events:
+- Events are grouped by date
+- Today's events are highlighted
+- Events are sorted chronologically
+
+## Troubleshooting
+
+If you encounter any issues:
+
+1. Make sure all dependencies are installed:
+```bash
+pip install -r requirements.txt
+```
+
+2. Check if Playwright is installed correctly:
+```bash
+playwright install --help
+```
+
+3. Verify your CSV file format is correct
+4. Ensure you have proper internet connection
+5. Check if events_data.json exists before running Flask app
+
+## Additional information
+For scrape FB Page links to CSV File - I recommened using this browser extension -> [www.webscraper.io](https://www.webscraper.io)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## Notes
+
+- This scraper is for educational purposes only
+- Respect Facebook's terms of service and rate limiting
+- Some events might not be accessible due to privacy settings
