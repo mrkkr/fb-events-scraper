@@ -28,16 +28,16 @@ class FacebookEventScraper:
     
     # CSS Selectors for various Facebook elements
     SELECTORS = {
-        'cookie_consent': '.x1i10hfl.xjbqb8w.x1ejq31n.xd10rxx.x1sy0etr.x17r0tee.x972fbf.xcfux6l.x1qhh985.xm0m39n.x1ypdohk.xe8uvvx.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x16tdsg8.x1hl2dhg.xggy1nq',
-        'login_prompt': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x1ypdohk.xdl72j9',
+        'cookie_consent': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x78zum5.xl56j7k',
+        'login_prompt': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x78zum5.xl56j7k',
         'event': {
             'wrapper': '.x6s0dn4.x1lq5wgf.xgqcy7u.x30kzoy.x9jhf4c.x1olyfxc.x9f619.x78zum5.x1e56ztr.xyamay9.x1pi30zi.x1l90r2v.x1swvt13.x1gefphp',
-            'link': 'a[href*="/events/"]',
             'date': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft',
             'title': '.html-span.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1hl2dhg.x16tdsg8.x1vvkbs',
-            'place_element': '.x1gslohp > div:first-child',
-            'place_container': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
             'date_element': '.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x1tu3fi.x3x7a5m.x1nxh6w3.x1sibtaa.xo1l8bm.xzsf02u.x1yc453h',
+            'place_container': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
+            'link': 'a[href*="/events/"]',
+            'place_element': '.x1gslohp > div:first-child'
         }
     }
 
@@ -200,61 +200,47 @@ class FacebookEventScraper:
     async def _handle_popups(self, page: Page) -> None:
         """Handle various popups that might appear."""
         try:
-            # Increased timeout for popup handling
-            timeout = 15000  # Increased from 10000
+            # Handle cookie consent
+            await page.evaluate("""
+                () => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const clickButton = (text) => {
+                        for (const btn of buttons) {
+                            if (btn.textContent.toLowerCase().includes(text)) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    
+                    return clickButton('accept') || clickButton('allow') || clickButton('continue');
+                }
+            """)
             
-            # Handle cookie consent with force option
-            try:
-                cookie_button = await page.wait_for_selector(
-                    self.SELECTORS['cookie_consent'],
-                    state="attached",
-                    timeout=timeout
-                )
-                if cookie_button:
-                    await page.evaluate("""
-                        (selector) => {
-                            const elements = document.querySelectorAll(selector);
-                            for (const el of elements) {
-                                if (el.innerText.includes('Allow all cookies')) {
-                                    el.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }
-                    """, self.SELECTORS['cookie_consent'])
-                    self.logger.info("✓ Cookie consent clicked using JavaScript")
-                    await page.wait_for_timeout(2000)
-            except Exception as e:
-                self.logger.warning(f"Cookie consent error: {str(e)}")
-
-            # Handle login prompt with force option
-            try:
-                close_button = await page.wait_for_selector(
-                    self.SELECTORS['login_prompt'],
-                    state="attached",
-                    timeout=timeout
-                )
-                if close_button:
-                    await page.evaluate("""
-                        (selector) => {
-                            const elements = document.querySelectorAll(selector);
-                            for (const el of elements) {
-                                if (el.getAttribute('aria-label') === 'Close') {
-                                    el.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }
-                    """, self.SELECTORS['login_prompt'])
-                    self.logger.info("✓ Login prompt clicked using JavaScript")
-                    await page.wait_for_timeout(2000)
-            except Exception as e:
-                self.logger.warning(f"Login prompt error: {str(e)}")
+            await page.wait_for_timeout(2000)
+            
+            # Handle login prompt
+            await page.evaluate("""
+                () => {
+                    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+                    const closeButton = buttons.find(btn => 
+                        btn.getAttribute('aria-label') === 'Close' || 
+                        btn.textContent.includes('Not Now')
+                    );
+                    if (closeButton) {
+                        closeButton.click();
+                        return true;
+                    }
+                    return false;
+                }
+            """)
+            
+            self.logger.info("✓ Popup handling complete")
             
         except Exception as e:
-            self.logger.error(f"Popup handling error: {str(e)}")
+            self.logger.warning(f"Popup handling error: {str(e)}")
+            # Continue execution even if popup handling fails
 
     async def _wait_for_content(self, page: Page) -> None:
         """Wait for the main content to load."""
@@ -341,150 +327,99 @@ class FacebookEventScraper:
         events = {}
         soup = BeautifulSoup(content, 'html.parser')
         
-        # Find all event titles
-        event_titles = soup.select(self.SELECTORS['event']['title'])
-        self.logger.debug(f"BeautifulSoup found {len(event_titles)} event titles")
+        # Find all containers that might have events
+        event_containers = []
+        for link in soup.select(self.SELECTORS['event']['link']):
+            container = link
+            depth = 0
+            # Look up the DOM tree for event container
+            while container and depth < 5:
+                if container.name == 'div' and container.get('class'):
+                    classes = ' '.join(container.get('class', []))
+                    if 'x6s0dn4' in classes and 'x1lq5wgf' in classes:
+                        # Verify it has a title and place elements
+                        if (container.select_one(self.SELECTORS['event']['title']) and 
+                            container.select_one('.x1gslohp')):
+                            event_containers.append(container)
+                            break
+                container = container.parent
+                depth += 1
         
-        events_found = 0
-        events_skipped = 0
+        self.logger.info(f"Found {len(event_containers)} potential event containers")
         
-        for idx, title_element in enumerate(event_titles, 1):
-            self.logger.debug(f"Processing event {idx}/{len(event_titles)} on {url}")
-            
-            parent = title_element.parent
-            self.logger.debug(f"Parent HTML: {parent.prettify()[:200]}...")
-            
-            event_data = self._extract_event_data(parent)
-            if event_data:
-                # Create unique key using title + date instead of just URL
-                event_key = f"{event_data['title']}_{event_data['date']}"
-                
+        for container in event_containers:
+            event_data = self._extract_event_data(container)
+            if event_data and event_data.get('date') != "Date TBD":
                 if event_data['date'] not in events:
                     events[event_data['date']] = []
-                
-                # Add event even if title exists but date is different
                 events[event_data['date']].append({
                     'event_title': event_data['title'],
                     'event_link': event_data['link'],
                     'event_place': event_data['place']
                 })
-                events_found += 1
-                self.logger.info(f"✓ Found event #{events_found}: {event_data['title']} at {event_data['place']} on {event_data['date']}")
-            else:
-                self.logger.debug(f"Failed to extract data for event {idx}")
-
-        self.logger.info(f"Page summary for {url}:")
-        self.logger.info(f"- Total titles found: {len(event_titles)}")
-        self.logger.info(f"- Successfully extracted: {events_found}")
-        self.logger.info(f"- Skipped duplicates: {events_skipped}")
-        self.logger.info(f"- Failed to extract: {len(event_titles) - events_found - events_skipped}")
+                self.logger.debug(f"Extracted event: {event_data['title']} at {event_data['place']}")
         
+        self.logger.info(f"Successfully extracted {sum(len(e) for e in events.values())} events")
         return events
 
     def _extract_event_data(self, container) -> Dict:
-        """
-        Extract event data from HTML container.
-
-        Extracts the following information:
-        - Event title
-        - Event link/URL
-        - Event date
-        - Event location/place
-
-        Args:
-            container: BeautifulSoup element containing event information
-
-        Returns:
-            Dict: Event data or empty dict if extraction fails
-        """
+        """Extract event data from HTML container."""
         try:
-            # Get the root wrapper - going up to find the main event container
-            root = container
-            while root and (root.name != 'div' or 'x6s0dn4' not in root.get('class', [])):
-                root = root.parent
-
-            if not root:
-                self.logger.debug("[ROOT] Could not find root container with class x6s0dn4")
+            # Get link first
+            link_element = container.select_one(self.SELECTORS['event']['link'])
+            if not link_element:
                 return {}
+            link = self._clean_url(link_element['href'])
 
-            # Find title - it's in a span with html-span and xdj266r classes
+            # Find title - must match ALL classes
             title = None
-            title_span = root.find('span', class_=lambda x: x and 'html-span' in x and 'xdj266r' in x)
-            if title_span:
-                title = title_span.text.strip()
-                self.logger.debug(f"[TITLE] Found: '{title}'")
-            else:
-                self.logger.debug("[TITLE] No title element found")
-                return {}
+            title_elements = container.select('.html-span')  # Looking specifically for html-span elements
+            for element in title_elements:
+                if element.get('class') and all(cls in element.get('class', []) for cls in [
+                    'xdj266r', 'x11i5rnm', 'xat24cr', 'x1mh8g0r', 'xexx8yu', 'x4uap5', 
+                    'x18d9i69', 'xkhd6sd', 'x1hl2dhg', 'x16tdsg8', 'x1vvkbs'
+                ]):
+                    title = element.get_text(strip=True)
+                    break
 
-            # Find event link
-            link = None
-            link_element = root.find('a', href=lambda x: x and '/events/' in x)
-            if link_element:
-                link = self._clean_url(link_element['href'])
-                self.logger.debug(f"[LINK] Found: {link}")
-            else:
-                self.logger.debug("[LINK] No event link found")
-                return {}
-
-            # Extract date - looking for specific span structure
+            # Find date - using x1yc453h class as unique identifier
             date = None
-            date_span = root.find('span', class_=lambda x: x and 'x1lliihq' in x and 'xuxw1ft' in x)
-            if date_span:
-                raw_date = date_span.get_text(strip=True)
-                self.logger.debug(f"[DATE] Raw text: '{raw_date}'")
-                date = self._convert_date(raw_date)
-                self.logger.debug(f"[DATE] Converted to: '{date}'")
+            date_elements = container.select('.x1yc453h')  # Using unique class as anchor
+            for element in date_elements:
+                if element.get('class') and 'xzsf02u' in element.get('class', []):
+                    date_text = element.get_text(strip=True)
+                    date = self._convert_date(date_text)
+                    if date != "Date TBD":
+                        break
 
-            # Extract place - try both possible structures
+            # Find place - using exact structure
             place = None
-            # First try the primary structure with x1gslohp class
-            place_div = root.find('div', class_='x1gslohp')
-            if place_div:
-                first_div = place_div.find('div')
-                if first_div:
-                    place_text = ''
-                    for content in first_div.contents:
-                        if isinstance(content, str):
-                            place_text += content
-                        elif content.name == 'span':
-                            break
-                    place = place_text.strip()
-                    self.logger.debug(f"[PLACE] Found from primary structure: '{place}'")
+            place_container = container.find('div', class_='x1gslohp')
+            if place_container:
+                # Get first div child that isn't a date element
+                place_element = place_container.find('div', recursive=False)
+                if place_element and not any(cls in place_element.get('class', []) for cls in ['xzsf02u', 'x1yc453h']):
+                    place = place_element.get_text(strip=True)
+                    if place and place not in ['See more', 'Show map']:
+                        self.logger.debug(f"Found place: {place}")
 
-            # If no place found, try alternative structure with link element
-            if not place:
-                place_link = root.find('a', class_=lambda x: x and all(cls in x for cls in [
-                    'x1i10hfl', 'xjbqb8w', 'x1ejq31n', 'xd10rxx', 'x1sy0etr', 
-                    'x17r0tee', 'x972fbf', 'xcfux6l', 'x1qhh985', 'xm0m39n', 
-                    'x9f619', 'x1ypdohk', 'xt0psk2', 'xe8uvvx', 'xdj266r', 
-                    'x11i5rnm', 'xat24cr', 'x1mh8g0r', 'xexx8yu', 'x4uap5', 
-                    'x18d9i69', 'xkhd6sd', 'x16tdsg8', 'x1hl2dhg', 'xggy1nq',
-                    'x1a2a7pz', 'xkrqix3', 'x1sur9pj', 'xi81zsa', 'x1s688f'
-                ]))
-                if place_link:
-                    place = place_link.get_text(strip=True)
-                    self.logger.debug(f"[PLACE] Found from alternative structure: '{place}'")
-
-            if not place:
-                place = "No location"
-                self.logger.debug("[PLACE] Using default location - no structure matched")
-
-            # Only return if we have essential data
-            if title and link:
-                event_data = {
-                    'date': date or "Date TBD",
+            # Create event data if we have the minimum required information
+            if title and link and date and date != "Date TBD":
+                result = {
+                    'date': date,
                     'link': link,
                     'title': title,
-                    'place': place
+                    'place': place or "No location"
                 }
-                self.logger.info(f"[EVENT] Extracted: {title} @ {place} on {date}")
-                return event_data
+                self.logger.debug(f"Successfully extracted event: {title} on {date}")
+                return result
+            else:
+                self.logger.debug(f"Skipping event due to missing data: title={bool(title)}, link={bool(link)}, valid_date={bool(date and date != 'Date TBD')}")
 
             return {}
 
         except Exception as e:
-            self.logger.debug(f"[ERROR] Extracting event data: {str(e)}")
+            self.logger.error(f"Error extracting event data: {str(e)}")
             return {}
 
     def _clean_url(self, url: str) -> str:
