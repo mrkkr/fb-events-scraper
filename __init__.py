@@ -14,6 +14,7 @@ from typing import Dict, List
 from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, Page
+from llm_extractor import LLMEventParser
 
 class FacebookEventScraper:
     """
@@ -363,17 +364,40 @@ class FacebookEventScraper:
         return events
 
     def _extract_event_data(self, container) -> Dict:
-        """Extract event data from HTML container."""
+        """Extract event data using CSS or LLM fallback"""
         try:
-            # Get link first
+            # Existing CSS-based extraction
+            css_data = self._css_extraction(container)
+            if css_data.get('title') and css_data.get('date') != "Date TBD":
+                return css_data
+                
+            # Fallback to LLM parsing
+            html_snippet = str(container)
+            llm_data = asyncio.run(LLMEventParser().parse_with_llm(html_snippet))
+            
+            if llm_data and all(key in llm_data for key in ['date_time', 'title', 'place', 'url']):
+                return {
+                    'date': self._convert_date(llm_data['date_time']),
+                    'link': self._clean_url(llm_data['url']),
+                    'title': llm_data['title'],
+                    'place': llm_data['place']
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Extraction failed: {str(e)}")
+        
+        return {}
+
+    def _css_extraction(self, container) -> Dict:
+        """Extract event data from HTML container using CSS selectors."""
+        try:
             link_element = container.select_one(self.SELECTORS['event']['link'])
             if not link_element:
                 return {}
             link = self._clean_url(link_element['href'])
 
-            # Find title - must match ALL classes
             title = None
-            title_elements = container.select('.html-span')  # Looking specifically for html-span elements
+            title_elements = container.select('.html-span')
             for element in title_elements:
                 if element.get('class') and all(cls in element.get('class', []) for cls in [
                     'xdj266r', 'x11i5rnm', 'xat24cr', 'x1mh8g0r', 'xexx8yu', 'x4uap5', 
@@ -382,28 +406,23 @@ class FacebookEventScraper:
                     title = element.get_text(strip=True)
                     break
 
-            # Find date - using x1yc453h class as unique identifier
             date = None
-            date_elements = container.select('.x1yc453h')  # Using unique class as anchor
+            date_elements = container.select('.x1yc453h')
             for element in date_elements:
                 if element.get('class') and 'xzsf02u' in element.get('class', []):
                     date_text = element.get_text(strip=True)
                     date = self._convert_date(date_text)
                     if date != "Date TBD":
                         break
-
-            # Find place - using exact structure
             place = None
             place_container = container.find('div', class_='x1gslohp')
             if place_container:
-                # Get first div child that isn't a date element
                 place_element = place_container.find('div', recursive=False)
                 if place_element and not any(cls in place_element.get('class', []) for cls in ['xzsf02u', 'x1yc453h']):
                     place = place_element.get_text(strip=True)
                     if place and place not in ['See more', 'Show map']:
                         self.logger.debug(f"Found place: {place}")
 
-            # Create event data if we have the minimum required information
             if title and link and date and date != "Date TBD":
                 result = {
                     'date': date,
@@ -419,8 +438,9 @@ class FacebookEventScraper:
             return {}
 
         except Exception as e:
-            self.logger.error(f"Error extracting event data: {str(e)}")
+            self.logger.error(f"Error extracting event data using CSS: {str(e)}")
             return {}
+
 
     def _clean_url(self, url: str) -> str:
         """Clean Facebook event URL."""

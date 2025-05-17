@@ -2,7 +2,9 @@
 .venv/
 venv/
 ENV/
-```
+
+# Python
+__pycache__/
 
 # CSV
 *.csv
@@ -23,27 +25,4 @@ venv/
 ENV/" >> .gitignore
 ```
 
-After adding these entries, Git will ignore the virtual environment folders and won't track them in your repository.// filepath: /home/marek/Documents/Projekty/fb-events-scraper/.gitignore
-# Virtual Environment
-.venv/
-venv/
-ENV/
-```
-
-I included multiple common virtual environment patterns since they can be named differently. This will:
-- Ignore `.venv` folder (your specific case)
-- Ignore `venv` folder (another common name)
-- Ignore `ENV` folder (another variant)
-
-The trailing slash (`/`) indicates it's a directory.
-
-You can create or modify the .gitignore file using this command in your terminal:
-
-```bash
-echo "# Virtual Environment
-.venv/
-venv/
-ENV/" >> .gitignore
-```
-
-my_liked_pages.csv
+After adding these entries, Git will ignore the virtual environment folders and won't track them in your repository.
