@@ -36,6 +36,21 @@ playwright install-deps
 playwright install chrome
 ```
 
+5. Install Ollama on Raspberry Pi 4:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+6. Download TinyDolphin model:
+```bash
+ollama pull tinydolphin
+```
+
+7. Run Ollama service:
+```bash
+OLLAMA_HOST=0.0.0.0:11434 ollama serve
+```
+
 ## Configuration
 
 1. Create a CSV file (e.g., `my_liked_pages_test.csv`) with Facebook pages URLs:
