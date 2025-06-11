@@ -14,7 +14,6 @@ from typing import Dict, List
 from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, Page
-from llm_extractor import LLMEventParser
 
 class FacebookEventScraper:
     """
@@ -27,18 +26,19 @@ class FacebookEventScraper:
     - Event data extraction and storage
     """
     
-    # CSS Selectors for various Facebook elements
+    # Updated CSS Selectors based on current Facebook structure
     SELECTORS = {
-        'cookie_consent': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x78zum5.xl56j7k',
-        'login_prompt': '.x1i10hfl.xjqpnuy.xa49m3k.xqeqjp1.x2hbi6w.x13fuv20.xu3j5b3.x1q0q8m5.x26u7qi.x972fbf.xcfux6l.x1qhh985.xm0m39n.x9f619.x78zum5.xl56j7k',
+        'cookie_consent': 'button[data-cookiebanner="accept_button"]',
+        'login_prompt': '[aria-label="Close"]',
         'event': {
-            'wrapper': '.x6s0dn4.x1lq5wgf.xgqcy7u.x30kzoy.x9jhf4c.x1olyfxc.x9f619.x78zum5.x1e56ztr.xyamay9.x1pi30zi.x1l90r2v.x1swvt13.x1gefphp',
-            'date': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6.xlyipyv.xuxw1ft',
-            'title': '.html-span.xdj266r.x11i5rnm.xat24cr.x1mh8g0r.xexx8yu.x4uap5.x18d9i69.xkhd6sd.x1hl2dhg.x16tdsg8.x1vvkbs',
-            'date_element': '.x193iq5w.xeuugli.x13faqbe.x1vvkbs.x10flsy6.x1lliihq.x1s928wv.xhkezso.x1gmr53x.x1cpjm7i.x1fgarty.x1943h6x.x1tu3fi.x3x7a5m.x1nxh6w3.x1sibtaa.xo1l8bm.xzsf02u.x1yc453h',
-            'place_container': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
-            'link': 'a[href*="/events/"]',
-            'place_element': '.x1gslohp > div:first-child'
+            # More flexible event container selector
+            'container': 'div[class*="x9f619"]',
+            'event_link': 'a[href*="/events/"]',
+            # Updated selectors based on actual HTML structure
+            'date_container': '.xu06os2.x1ok221b',
+            'date_text': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
+            'title_span': 'span.html-span',
+            'location_container': '.x1gslohp > div:first-child'
         }
     }
 
@@ -63,12 +63,6 @@ class FacebookEventScraper:
     async def scrape_events(self) -> None:
         """
         Main method to orchestrate the scraping process.
-        
-        This method:
-        1. Reads URLs from CSV
-        2. Initializes Playwright browser
-        3. Processes URLs in batches
-        4. Merges and saves results
         """
         urls = self._read_urls()
         self.logger.info(f"Starting to scrape {len(urls)} URLs")
@@ -95,21 +89,16 @@ class FacebookEventScraper:
                 java_script_enabled=True,
             )
 
-            # Add debug logging
             context.set_default_timeout(60000)
-            page = await context.new_page()
-            await page.route("**/*", lambda route: route.continue_())
             
             try:
-                # Reduce batch size and increase timeouts
-                batch_size = 3  # Reduced from 5
+                batch_size = 3
                 results = []
                 
                 for i in range(0, len(urls), batch_size):
                     batch = urls[i:i + batch_size]
                     self.logger.info(f"Processing batch {i//batch_size + 1}/{len(urls)//batch_size + 1}")
                     
-                    # Process each URL with individual error handling
                     batch_results = []
                     for url in batch:
                         try:
@@ -120,8 +109,7 @@ class FacebookEventScraper:
                             batch_results.append({})
                     
                     results.extend(batch_results)
-                    # Increased delay between batches
-                    await asyncio.sleep(5)  # Increased from 2
+                    await asyncio.sleep(5)
                     
                 events = self._merge_results(results)
                 if not events:
@@ -136,14 +124,6 @@ class FacebookEventScraper:
     async def _scrape_page_with_retry(self, context, url: str, max_retries: int = 3) -> Dict:
         """
         Attempt to scrape a page with exponential backoff retries.
-
-        Args:
-            context: Playwright browser context
-            url (str): Target Facebook page URL
-            max_retries (int): Maximum number of retry attempts
-
-        Returns:
-            Dict: Extracted events data or empty dict if failed
         """
         for attempt in range(max_retries):
             try:
@@ -151,7 +131,7 @@ class FacebookEventScraper:
             except Exception as e:
                 self.logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {str(e)}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(10 * (attempt + 1))  # Increased backoff time
+                    await asyncio.sleep(10 * (attempt + 1))
                 else:
                     self.logger.error(f"Failed to scrape {url} after {max_retries} attempts")
                     return {}
@@ -164,30 +144,19 @@ class FacebookEventScraper:
             
             await page.goto(url, wait_until='networkidle', timeout=30000)
             await self._handle_popups(page)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
             
-            try:
-                # Look for event links directly
-                event_titles = await page.query_selector_all(self.SELECTORS['event']['title'])
-                if len(event_titles) > 0:
-                    self.logger.info(f"Found {len(event_titles)} potential event titles on {url}")
-                    
-                    # Debug: Print first few titles
-                    for i, title in enumerate(event_titles[:3]):
-                        title_text = await title.text_content()
-                        self.logger.debug(f"Sample title {i+1}: {title_text}")
-                    
-                    await self._scroll_page(page)
-                else:
-                    self.logger.warning(f"No event titles found on {url}")
-                    return {}
-
-            except Exception as e:
-                self.logger.error(f"Error finding events: {str(e)}")
+            # Look for event links first (more reliable)
+            event_links = await page.query_selector_all(self.SELECTORS['event']['event_link'])
+            
+            if event_links:
+                self.logger.info(f"Found {len(event_links)} event links on {url}")
+                await self._scroll_page(page)
+            else:
+                self.logger.warning(f"No event links found on {url}")
                 return {}
 
             content = await page.content()
-            self.logger.debug(f"Page content length: {len(content)} characters")
             events = self._parse_content(content, url)
             
             return events
@@ -241,37 +210,19 @@ class FacebookEventScraper:
             
         except Exception as e:
             self.logger.warning(f"Popup handling error: {str(e)}")
-            # Continue execution even if popup handling fails
-
-    async def _wait_for_content(self, page: Page) -> None:
-        """Wait for the main content to load."""
-        try:
-            # Wait for event title elements to appear
-            await page.wait_for_selector(self.SELECTORS['event']['title'], timeout=30000)
-            event_titles = await page.query_selector_all(self.SELECTORS['event']['title'])
-            if len(event_titles) > 0:
-                self.logger.info(f"✓ Found {len(event_titles)} potential events")
-            else:
-                self.logger.info("No events found on page")
-            
-            await page.wait_for_timeout(2000)
-            
-        except Exception as e:
-            self.logger.error(f"Content loading error: {str(e)}")
-            raise
 
     async def _scroll_page(self, page: Page) -> None:
         """Scroll down the page to load all content."""
         try:
             last_event_count = 0
             no_new_events_count = 0
-            max_no_new_events = 3  # Stop if no new events found after 3 scrolls
+            max_no_new_events = 3
             
-            for scroll in range(10):  # Maximum 10 scrolls
+            for scroll in range(10):
                 await page.evaluate("window.scrollBy(0, 800)")
                 await page.wait_for_timeout(1000)
                 
-                events = await page.query_selector_all(self.SELECTORS['event']['title'])
+                events = await page.query_selector_all(self.SELECTORS['event']['event_link'])
                 current_count = len(events)
                 
                 if current_count == last_event_count:
@@ -291,15 +242,9 @@ class FacebookEventScraper:
     def _merge_results(self, results: List[Dict]) -> Dict:
         """
         Merge events from multiple pages into a single dictionary, removing duplicates.
-        
-        Args:
-            results: List of dictionaries containing events by date
-        
-        Returns:
-            Dict: Merged events grouped by date with duplicates removed
         """
         merged = {}
-        seen_events = set()  # Track unique events using title+date+link combination
+        seen_events = set()
         
         for result in results:
             for date, events in result.items():
@@ -307,7 +252,6 @@ class FacebookEventScraper:
                     merged[date] = []
                 
                 for event in events:
-                    # Create unique identifier for event
                     event_id = f"{event['event_title']}|{date}|{event['event_link']}"
                     
                     if event_id not in seen_events:
@@ -317,136 +261,134 @@ class FacebookEventScraper:
                     else:
                         self.logger.debug(f"Skipped duplicate event: {event['event_title']} on {date}")
         
-        # Remove dates with empty event lists
         merged = {date: events for date, events in merged.items() if events}
         
         self.logger.info(f"Merged results: {len(seen_events)} unique events across {len(merged)} dates")
         return merged
 
     def _parse_content(self, content: str, url: str) -> Dict:
-        """Parse HTML content using BeautifulSoup."""
+        """Parse HTML content using BeautifulSoup with updated selectors."""
         events = {}
         soup = BeautifulSoup(content, 'html.parser')
         
-        # Find all containers that might have events
-        event_containers = []
-        for link in soup.select(self.SELECTORS['event']['link']):
-            container = link
-            depth = 0
-            # Look up the DOM tree for event container
-            while container and depth < 5:
-                if container.name == 'div' and container.get('class'):
-                    classes = ' '.join(container.get('class', []))
-                    if 'x6s0dn4' in classes and 'x1lq5wgf' in classes:
-                        # Verify it has a title and place elements
-                        if (container.select_one(self.SELECTORS['event']['title']) and 
-                            container.select_one('.x1gslohp')):
-                            event_containers.append(container)
-                            break
-                container = container.parent
-                depth += 1
+        # Find all event links first
+        event_links = soup.select(self.SELECTORS['event']['event_link'])
+        self.logger.info(f"Found {len(event_links)} event links in HTML")
         
-        self.logger.info(f"Found {len(event_containers)} potential event containers")
-        
-        for container in event_containers:
-            event_data = self._extract_event_data(container)
-            if event_data and event_data.get('date') != "Date TBD":
-                if event_data['date'] not in events:
-                    events[event_data['date']] = []
-                events[event_data['date']].append({
-                    'event_title': event_data['title'],
-                    'event_link': event_data['link'],
-                    'event_place': event_data['place']
-                })
-                self.logger.debug(f"Extracted event: {event_data['title']} at {event_data['place']}")
+        for link in event_links:
+            try:
+                event_data = self._extract_event_data_updated(link)
+                if event_data and event_data.get('date') and event_data['date'] != "Date TBD":
+                    if event_data['date'] not in events:
+                        events[event_data['date']] = []
+                    events[event_data['date']].append({
+                        'event_title': event_data['title'],
+                        'event_link': event_data['link'],
+                        'event_place': event_data['place']
+                    })
+                    self.logger.debug(f"Extracted event: {event_data['title']} at {event_data['place']}")
+            except Exception as e:
+                self.logger.debug(f"Error extracting event data: {str(e)}")
+                continue
         
         self.logger.info(f"Successfully extracted {sum(len(e) for e in events.values())} events")
         return events
 
-    def _extract_event_data(self, container) -> Dict:
-        """Extract event data using CSS or LLM fallback"""
+    def _extract_event_data_updated(self, link_element) -> Dict:
+        """
+        Extract event data from the event link element and its parent container.
+        """
         try:
-            # Existing CSS-based extraction
-            css_data = self._css_extraction(container)
-            if css_data.get('title') and css_data.get('date') != "Date TBD":
-                return css_data
-                
-            # Fallback to LLM parsing
-            html_snippet = str(container)
-            llm_data = asyncio.run(LLMEventParser().parse_with_llm(html_snippet))
-            
-            if llm_data and all(key in llm_data for key in ['date_time', 'title', 'place', 'url']):
-                return {
-                    'date': self._convert_date(llm_data['date_time']),
-                    'link': self._clean_url(llm_data['url']),
-                    'title': llm_data['title'],
-                    'place': llm_data['place']
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Extraction failed: {str(e)}")
-        
-        return {}
-
-    def _css_extraction(self, container) -> Dict:
-        """Extract event data from HTML container using CSS selectors."""
-        try:
-            link_element = container.select_one(self.SELECTORS['event']['link'])
-            if not link_element:
+            # Get the event URL
+            event_url = self._clean_url(link_element.get('href', ''))
+            if not event_url:
                 return {}
-            link = self._clean_url(link_element['href'])
 
-            title = None
-            title_elements = container.select('.html-span')
-            for element in title_elements:
-                if element.get('class') and all(cls in element.get('class', []) for cls in [
-                    'xdj266r', 'x11i5rnm', 'xat24cr', 'x1mh8g0r', 'xexx8yu', 'x4uap5', 
-                    'x18d9i69', 'xkhd6sd', 'x1hl2dhg', 'x16tdsg8', 'x1vvkbs'
-                ]):
-                    title = element.get_text(strip=True)
+            # Get the title from the link's span
+            title_span = link_element.select_one(self.SELECTORS['event']['title_span'])
+            title = title_span.get_text(strip=True) if title_span else None
+            
+            if not title:
+                # Fallback: try to get any text from the link
+                title = link_element.get_text(strip=True)
+
+            # Find the parent container that holds all event information
+            # Navigate up to find the main event container
+            container = link_element
+            for _ in range(10):  # Limit traversal depth
+                container = container.parent
+                if not container:
+                    break
+                # Look for the characteristic event container classes
+                if container.get('class') and any('x9f619' in str(cls) for cls in container.get('class', [])):
                     break
 
-            date = None
-            date_elements = container.select('.x1yc453h')
-            for element in date_elements:
-                if element.get('class') and 'xzsf02u' in element.get('class', []):
-                    date_text = element.get_text(strip=True)
-                    date = self._convert_date(date_text)
-                    if date != "Date TBD":
-                        break
-            place = None
-            place_container = container.find('div', class_='x1gslohp')
-            if place_container:
-                place_element = place_container.find('div', recursive=False)
-                if place_element and not any(cls in place_element.get('class', []) for cls in ['xzsf02u', 'x1yc453h']):
-                    place = place_element.get_text(strip=True)
-                    if place and place not in ['See more', 'Show map']:
-                        self.logger.debug(f"Found place: {place}")
+            if not container:
+                return {}
 
-            if title and link and date and date != "Date TBD":
-                result = {
-                    'date': date,
-                    'link': link,
+            # Extract date - look for date patterns in the container
+            date = self._extract_date_from_container(container)
+            
+            # Extract location - look for location container
+            place = self._extract_place_from_container(container)
+
+            if title and event_url and date and date != "Date TBD":
+                return {
                     'title': title,
+                    'link': event_url,
+                    'date': date,
                     'place': place or "No location"
                 }
-                self.logger.debug(f"Successfully extracted event: {title} on {date}")
-                return result
-            else:
-                self.logger.debug(f"Skipping event due to missing data: title={bool(title)}, link={bool(link)}, valid_date={bool(date and date != 'Date TBD')}")
 
             return {}
 
         except Exception as e:
-            self.logger.error(f"Error extracting event data using CSS: {str(e)}")
+            self.logger.debug(f"Error in updated extraction: {str(e)}")
             return {}
 
+    def _extract_date_from_container(self, container) -> str:
+        """Extract date from event container."""
+        try:
+            # Look for date patterns in span elements
+            date_spans = container.select('span')
+            for span in date_spans:
+                text = span.get_text(strip=True)
+                # Look for date patterns like "Tue, Jun 17 at 7 PM"
+                if any(pattern in text.lower() for pattern in ['at ', 'pm', 'am', 'mon,', 'tue,', 'wed,', 'thu,', 'fri,', 'sat,', 'sun,']):
+                    date = self._convert_date(text)
+                    if date != "Date TBD":
+                        return date
+            
+            return "Date TBD"
+        except Exception as e:
+            self.logger.debug(f"Date extraction error: {str(e)}")
+            return "Date TBD"
+
+    def _extract_place_from_container(self, container) -> str:
+        """Extract location from event container."""
+        try:
+            # Look for location container
+            location_div = container.select_one(self.SELECTORS['event']['location_container'])
+            if location_div:
+                location_text = location_div.get_text(strip=True)
+                # Clean up location text (remove "Event by" and other metadata)
+                if 'Event by' in location_text:
+                    location_text = location_text.split('Event by')[0].strip()
+                if location_text and location_text not in ['See more', 'Show map']:
+                    return location_text
+            
+            return "No location"
+        except Exception as e:
+            self.logger.debug(f"Location extraction error: {str(e)}")
+            return "No location"
 
     def _clean_url(self, url: str) -> str:
         """Clean Facebook event URL."""
+        if not url:
+            return ""
         if '?' in url:
             url = url.split('?')[0]
-        if 'facebook.com' not in url:
+        if 'facebook.com' not in url and url.startswith('/'):
             url = f"https://facebook.com{url}"
         return url
 
@@ -466,47 +408,39 @@ class FacebookEventScraper:
             current_year = warsaw_tz.year
             today = warsaw_tz.date()
 
-            # Handle special cases (happening now, today, tomorrow)
+            # Handle special cases
             if "happening now" in date_string:
-                result = today.strftime("%d/%m/%Y")
-                self.logger.debug(f"[DATE] Happening now -> {result}")
-                return result
+                return today.strftime("%d/%m/%Y")
             if "today" in date_string:
-                result = today.strftime("%d/%m/%Y")
-                self.logger.debug(f"[DATE] Today -> {result}")
-                return result
+                return today.strftime("%d/%m/%Y")
             if "tomorrow" in date_string:
-                result = (today + timedelta(days=1)).strftime("%d/%m/%Y")
-                self.logger.debug(f"[DATE] Tomorrow -> {result}")
-                return result
+                return (today + timedelta(days=1)).strftime("%d/%m/%Y")
 
-            # Parse standard date format: "Fri, Mar 15 at 8:00 PM CET"
+            # Parse standard format: "Tue, Jun 17 at 7 PM" or "Jun 17 at 7 PM"
             try:
                 # Remove time portion and clean up
                 date_part = date_string.split(" at ")[0]
                 if ',' in date_part:
                     date_part = date_part.split(',')[1].strip()
 
-                # Parse "Mar 15" format
+                # Parse "Jun 17" format
                 parts = date_part.split()
                 if len(parts) >= 2:
-                    month = parts[0][:3].title()  # Capitalize first three letters
+                    month = parts[0][:3].title()
                     day = int(parts[1])
                     
                     if month in self.MONTHS:
                         month_num = self.MONTHS[month]
                         
-                        # Determine year based on date
+                        # Determine year
                         event_date = datetime(current_year, month_num, day)
                         if event_date.date() < today:
-                            # If event date is in the past, it's probably next year
                             event_date = datetime(current_year + 1, month_num, day)
                         
                         result = event_date.strftime("%d/%m/%Y")
                         self.logger.debug(f"[DATE] Successfully converted to: {result}")
                         return result
 
-                self.logger.debug(f"[DATE] Failed to parse parts: {parts}")
             except Exception as e:
                 self.logger.debug(f"[DATE] Error parsing standard format: {str(e)}")
 
@@ -523,7 +457,7 @@ class FacebookEventScraper:
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)  # Changed to DEBUG to see more details
+        logger.setLevel(logging.DEBUG)
         return logger
 
     def _read_urls(self) -> List[str]:
@@ -535,19 +469,6 @@ class FacebookEventScraper:
             for row in reader:
                 urls.extend(row)
         return urls
-
-    async def _dismiss_popups(self, page: Page) -> None:
-        """Dismiss popups on the page."""
-        if not self.popups_dismissed:
-            try:
-                await page.click(self.SELECTORS['cookie_consent'])
-            except:
-                self.logger.warning("Cookie consent popup not found")
-            self.popups_dismissed = True
-        try:
-            await page.click(self.SELECTORS['login_prompt'])
-        except:
-            self.logger.warning("Login prompt popup not found")
 
     def _save_events(self, events: Dict) -> None:
         """
@@ -571,13 +492,6 @@ class FacebookEventScraper:
         # Save to file
         with open("events_data.json", "w", encoding="utf-8") as output:
             json.dump(sorted_events_str, output, ensure_ascii=False, indent=4)
-
-    def _convert_to_date(self, date_str: str) -> datetime:
-        """Convert date string to datetime object."""
-        try:
-            return datetime.strptime(date_str, '%d/%m/%y')
-        except ValueError:
-            return None
 
     async def run(self):
         """Entry point for the scraper."""
