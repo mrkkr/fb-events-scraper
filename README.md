@@ -36,29 +36,16 @@ playwright install-deps
 playwright install chrome
 ```
 
-5. Install Ollama on Raspberry Pi 4:
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-6. Download TinyDolphin model:
-```bash
-ollama pull tinydolphin
-```
-
-7. Run Ollama service:
-```bash
-OLLAMA_HOST=0.0.0.0:11434 ollama serve
-```
-
 ## Configuration
 
-1. Create a CSV file (e.g., `my_liked_pages_test.csv`) with Facebook pages URLs:
+1. Create a CSV file (e.g., `my_liked_pages.csv`) with Facebook pages URLs and categories:
 ```csv
-url
-https://www.facebook.com/events/your-page-1
-https://www.facebook.com/events/your-page-2
+fb_page_link,category
+https://facebook.com/your-page-1/upcoming_hosted_events,music,concert
+https://facebook.com/your-page-2/upcoming_hosted_events,theater,exhibition
 ```
+
+The category column can contain multiple categories separated by commas. These categories will be used to filter events in the web interface.
 
 ## Usage
 
