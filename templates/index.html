@@ -1,77 +1,96 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Warsaw Events</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chota.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
 </head>
 <body>
-    <!-- back to top -->
+    <!-- Back to top button -->
     <div id="backToTopBtn">&#8593;</div>
 
-    <!-- top bar -->
+    <!-- Top Bar -->
     <div class="topbar bg-white">
-        <div class="container">
-            <div class="row is-vertical-align flex-nowrap">
-                <div class="col is-marginless logo">
-                    <h1 class="title is-marginless">
-                        <a href="/">Warsaw Events</a>
-                    </h1>
-                </div>
-                <div class="col is-right is-marginless">
-                    <a href="https://github.com/mrkkr/fb-events-scraper" target="_blank">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    </a>
-                </div>
+        <nav class="nav logo">
+            <div class="nav-left">
+                <a href="/">
+                    <img src="{{ url_for('static', filename='pics/logo.png') }}" alt="Warsaw Events Logo" class="logo-img">
+                </a>
             </div>
-        </div>
+            <div class="nav-right">
+                <a href="https://github.com/mrkkr/fb-events-scraper" target="_blank" aria-label="GitHub Repository">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+            </div>
+        </nav>
     </div>
 
-    <div class="container mt-10-rem">
+    <!-- Main Content -->
+    <div class="container mt-12-rem">
+        <!-- Category Filters -->
         <div class="row">
-            <div class="col is-horizontal-align is-center">
-                <div class="datepicker-container">
-                    <input type="date" name="date-start" id="startDatePicker" class="datepicker mr-1">
-                    <input type="date" name="date-end" id="endDatePicker" class="datepicker">  
-                </div>
-                <div class="button-container ml-1">
-                    <a id="clear-dates" class="button bg-black text-white">clear</a>
+            <div class="col-12">
+                <div id="category-filters">
+                    <div class="filter-dropdown-container">
+                        <button id="filter-trigger">Wszystkie kategorie</button>
+                        <div id="category-list">
+                            <button class="filter-btn active" data-category="all">Wszystkie</button>
+                            {% for cat in unique_categories %}
+                                <button class="filter-btn" data-category="{{ cat }}">{{ cat }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="row mt-3">
-        {% for date, events in events.items() %}
-            {% set date_object = date|str_to_datetime %}
-            {% if date_object %}
-                {% if date_object >= current_date %}
-                    <div class="{{ 'col-12 col-6-md toggle' if date_object == current_date or date_object == tomorrow else 'col-12 col-4-md toggle lazy mt-3' }}"
-                    date-atr="{{ date }}">
-
-                        <h3 class="text-dark text-center">
-                            {{ date }} 
-                            {{ '- dzisiaj' if date_object == current_date else '- jutro' if date_object == tomorrow else '' }}
-                        </h3>
-
-                        {% for event in events %}
-                            <div class="card outline dark mb-1">
-                                <a href="{{ event.event_link }}" class="text-black" target="_blank">{{ event.event_title }}</a>
-                                <span class="tag bg-white text-dark is-small">{{ event.event_place }}</span>
+        <!-- Events Grid -->
+        <div id="events-grid">
+            {% for date, events in events.items() %}
+                {% set date_object = date|str_to_datetime %}
+                {% if date_object and date_object >= current_date %}
+                    <div class="date-section">
+                        <div class="row">
+                            <div class="col-12">
+                                <h3 class="date-header">
+                                    <span>{{ date }}</span>
+                                    {% if date_object == current_date %}
+                                        <span class="tag is-primary">- dzisiaj</span>
+                                    {% elif date_object == tomorrow %}
+                                        <span class="tag is-success">- jutro</span>
+                                    {% endif %}
+                                </h3>
                             </div>
-                        {% endfor %}
-
+                        </div>
+                        <div class="row">
+                            {% for event in events %}
+                            <div class="col-12 col-6-md col-4-lg event-container" data-categories="{{ event.event_categories | join(',') }}">
+                                <div class="card event-card">
+                                    <div class="card-body">
+                                        <h4 class="card-title">
+                                            <a href="{{ event.event_link }}" class="text-dark" target="_blank">{{ event.event_title }}</a>
+                                        </h4>
+                                        <p class="card-subtitle">{{ event.event_place }}</p>
+                                    </div>
+                                    <div class="card-footer">
+                                        {% for category in event.event_categories %}
+                                        <span class="tag event-category" data-category="{{ category }}">{{ category }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
                     </div>
-                    {% if loop.index == 1 and loop.index % 3 == 0 %}
-                    </div>
-                    <div class="row">
-                    {% endif %}
                 {% endif %}
-            {% endif %}
-        {% endfor %}
+            {% endfor %}
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/scripts.js')}}"></script>
+    <script src="{{ url_for('static', filename='js/filters.js')}}"></script>
 </body>
 </html>
-

@@ -1,196 +1,284 @@
-/*
-* Prefixed by https://autoprefixer.github.io
-* PostCSS: v8.4.14,
-* Autoprefixer: v10.4.7
-* Browsers: last 4 version
-*/
+/* General Styles & Variables */
+:root {
+    --brand-primary: #007bff;
+    --card-bg: #ffffff;
+    --card-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    --card-hover-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    --transition-speed: 0.3s;
+}
 
-/* import chota css */
-@import url(chota.min.css);
+body {
+    background-color: #f9f9f9;
+}
 
-/* import Ubuntu font */
-@import url('https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap');
-
-/* Overwrite css here */
-
-/**
-* Topbar
-*/
+/* Header */
 .topbar {
-    padding: 5px 10px; /* Padding for the top bar */
-    position: fixed; /* Fixed position at the top */
-    top: 0; /* Stick to the top */
-    width: 100%; /* Full width */
-    box-shadow: none;
-    z-index: 9999;
-    border-bottom: 1px black solid;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     background-color: #fff;
+    padding: 0.5rem 0;
 }
 
-.topbar svg {
-    width: 30px; /* Adjust the width as needed */
-    height: auto; /* Maintain aspect ratio */
-    vertical-align: middle; /* Align vertically with text */
+/* NEW: Explicit styles for the topbar row */
+.topbar .row {
+    justify-content: space-between;
+    align-items: center;
 }
 
-/**
-* Back to top
-*/
-/* Style for the back to top button */
-#backToTopBtn {
-    display: none; /* Initially hidden */
-    position: fixed; /* Fixed position */
-    bottom: 20px; /* Distance from bottom */
-    right: 20px; /* Distance from right */
-    background-color: #000; /* Background color */
-    color: #fff; /* Text color */
-    width: 40px; /* Button width */
-    height: 40px; /* Button height */
-    line-height: 40px; /* Center text vertically */
-    text-align: center; /* Center text horizontally */
-    border-radius: 50%; /* Rounded shape */
-    font-size: 24px; /* Icon size */
-    cursor: pointer; /* Cursor on hover */
-    transition: background-color 0.3s; /* Smooth transition */
+.logo {
+    flex-direction: row;
 }
 
-#backToTopBtn:hover {
-    background-color: #555; /* Darker background color on hover */
-}
-
-/**
-* Utilities
-*/
-.mr-1 {
-    margin-right: .5rem;
-}
-
-.ml-1 {
-    margin-left: .5rem;
-}
-
-.mt-1 {
-    margin-top: .5rem;
-}
-
-.mt-2 {
-    margin-top: 1rem;
-}
-
-.mt-3 {
-    margin-top: 3rem;
-}
-
-.mt-4 {
-    margin-top: 4rem;
+.logo-img {
+    max-height: 65px !important;
+    width: auto;
+    display: block;
 }
 
 .mt-10-rem {
     margin-top: 10rem;
 }
 
-.mb-1 {
-    margin-bottom: .5rem;
+.mt-11-rem {
+    margin-top: 11rem;
 }
 
-.bg-white {
-    background-color: #fff;
+.mt-12-rem {
+    margin-top: 12rem;
 }
 
-.bg-black {
-    background-color: #000;
+/* Category Filters (Desktop & Tablet) */
+#category-filters {
+    display: flex;
+    justify-content: center;
 }
 
-.text-black {
-    color: #000;
+#category-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
 }
 
-.flex-nowrap {
-    flex-wrap: nowrap;
-}
-
-/**
-* Columns transition
-*/
-.toggle {
-    -webkit-transition: all .5s ease-in-out;
-    -o-transition: all .5s ease-in-out;
-    transition: all .5s ease-in-out;
-}
-
-.active {
-    display: block !important;
-    opacity: 1 !important;
-    -webkit-transition: all .5s ease-in-out;
-    -o-transition: all .5s ease-in-out;
-    transition: all .5s ease-in-out;
-}
-
-.inactive {
-    display: none !important;
-    opacity: 0 !important;
-    -webkit-transition: all .5s ease-in-out;
-    -o-transition: all .5s ease-in-out;
-    transition: all .5s ease-in-out;
-}
-
-/**
-* Lazy loading
-*/
-.lazy {
-    display: none; /* Hide the lazy-loaded items */
-    opacity: 0; /* Initially hide the divs */
-    -webkit-transition: display 0.2s ease, opacity 0.8s ease;
-    -o-transition:  display 0.2s ease, opacity 0.8s ease;
-    transition:  display 0.2s ease, opacity 0.8s ease; /* Smooth transition */
-}
-
-/**
-* Datepicker
-*/
-[type="date"] {
-    background: #fff url(../pics/calendar_2.png) 0 0 0 0 no-repeat;
-}
-
-[type="date"]::-webkit-inner-spin-button {
+#filter-trigger {
     display: none;
 }
 
-[type="date"]::-webkit-calendar-picker-indicator {
-    opacity: 0;
+.filter-btn {
+    background-color: #e9ecef;
+    color: #495057;
+    border: 1px solid transparent;
+    border-radius: 30px;
+    padding: 12px;
+    font-size: 1.5rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-speed) ease;
+    outline: none;
+    white-space: nowrap;
 }
 
-/* custom styles */
-body {
-    background: #fff;
-    font-family: "Ubuntu", sans-serif;
+.filter-btn:hover {
+    background-color: #ced4da;
+    color: #212529;
 }
 
-label {
-    display: block;
-    margin-bottom: 10px;
+.filter-btn.active {
+    background-color: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
 }
 
-input.datepicker {
-    border: 1px solid var(--color-grey);
-    border-radius: 0;
-    background-color: #fff;
-    padding: 5px 10px;
-    -webkit-box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.1);
-            box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.1);
-    width: 155px;
-    height: 30px;
+
+/* Date Header & Section */
+.date-header {
+    width: 100%;
+    margin: 3rem 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #333;
+}
+.date-header .tag {
+    font-size: 1.4rem;
+    padding: 8px 12px;
 }
 
-.card {
-    background: #f6f6f6;
-    border-radius: 4px;
-    -webkit-box-shadow: 0 1px 3px var(--color-grey);
-    box-shadow: 0 1px 2px var(--color-grey);
+.date-section.hidden {
+    display: none;
+}
+
+
+/* Event Card Grid & Transitions */
+.event-container {
     padding: 1rem;
-    border: 1px #000 solid;
+    transition: opacity var(--transition-speed) ease, transform var(--transition-speed) ease;
 }
 
-.logo {
-    flex: 1 0 auto;
+.event-container.hidden {
+    display: none; 
+}
+
+/* Modern Event Card */
+.event-card {
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: var(--card-shadow);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    transition: transform var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
+    border: 1px solid #eee;
+    padding: 0;
+}
+
+.event-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--card-hover-shadow);
+}
+
+.card-body {
+    padding: 2rem;
+    flex-grow: 1;
+}
+
+.card-title {
+    font-size: 1.8rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.card-title a {
+    text-decoration: none;
+}
+
+.card-subtitle {
+    color: #6c757d;
+    font-size: 1.5rem;
+}
+
+.card-footer {
+    padding: 1.5rem 2rem;
+    background-color: rgba(0,0,0,0.02);
+    border-top: 1px solid #f1f1f1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+/* Specific Category Tag Colors */
+.event-category {
+    font-size: 1.2rem;
+    padding: 8px 14px;
+    border-radius: 8px;
+    color: white;
+}
+
+[data-category="Koncert"], [data-category="Muzyka"] { background-color: #dc3545; }
+[data-category="Teatr"], [data-category="Sztuka"] { background-color: #6f42c1; }
+[data-category="Sport"] { background-color: #28a745; }
+[data-category="Warsztaty"], [data-category="Edukacja"] { background-color: #17a2b8; }
+[data-category="Stand-up"] { background-color: #fd7e14; }
+.event-category:not([data-category="Koncert"]):not([data-category="Muzyka"]):not([data-category="Teatr"]):not([data-category="Sztuka"]):not([data-category="Sport"]):not([data-category="Warsztaty"]):not([data-category="Edukacja"]):not([data-category="Stand-up"]) {
+    background-color: #6c757d;
+}
+
+
+/* Back to top button */
+#backToTopBtn {
+    display: none; position: fixed; bottom: 20px; right: 30px; z-index: 99;
+    border: none; outline: none; background-color: var(--brand-primary);
+    color: white; cursor: pointer; padding: 15px; border-radius: 50%;
+    font-size: 24px; width: 60px; height: 60px; line-height: 28px; text-align: center;
+}
+#backToTopBtn:hover { background-color: #0056b3; }
+
+
+/* --- MOBILE RESPONSIVE FILTERS --- */
+@media (max-width: 768px) {
+    /* UPDATED: Increased mobile logo height */
+    .logo-img {
+        max-height: 55px !important;
+    }
+
+    .filter-dropdown-container {
+        position: relative;
+        width: 100%;
+    }
+
+    #filter-trigger {
+        display: block;
+        width: 100%;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        padding: 16px 20px;
+        text-align: left;
+        font-size: 1.5rem;
+        border-radius: 8px;
+        cursor: pointer;
+        position: relative;
+    }
+
+    #filter-trigger::after {
+        content: '▼';
+        position: absolute;
+        right: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1rem;
+        color: #888;
+    }
+
+    /* UPDATED: Dropdown list styles */
+    #category-list {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-top: 4px;
+        z-index: 100;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        padding: 0.5rem;
+        gap: 0.25rem;
+        
+        /* CRITICAL FIXES FOR DROPDOWN */
+        flex-direction: column; /* Ensures single-column layout */
+        max-height: 70vh; /* Limits height to 70% of viewport height */
+        overflow-y: auto;   /* Adds vertical scroll if needed */
+    }
+
+    #category-list.is-open {
+        display: flex;
+    }
+
+    #category-list .filter-btn {
+        width: 100%;
+        text-align: left;
+        background-color: transparent;
+        border: none;
+        border-radius: 4px;
+        color: #333;
+        font-size: 1.4rem;
+        padding: 12px 16px;
+    }
+
+    #category-list .filter-btn:hover {
+        background-color: #f1f1f1;
+    }
+
+    #category-list .filter-btn.active {
+        background-color: var(--brand-primary);
+        color: white;
+    }
 }

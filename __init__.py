@@ -26,19 +26,20 @@ class FacebookEventScraper:
     - Event data extraction and storage
     """
     
-    # Updated CSS Selectors based on current Facebook structure
+    # --- UPDATED SELECTORS based on the actual HTML structure ---
     SELECTORS = {
         'cookie_consent': 'button[data-cookiebanner="accept_button"]',
         'login_prompt': '[aria-label="Close"]',
         'event': {
-            # More flexible event container selector
-            'container': 'div[class*="x9f619"]',
+            # FIXED: Updated container selector to match the actual HTML structure
+            'container': 'div.x9f619.x1n2onr6.x1ja2u2z.x78zum5.xdt5ytf.x193iq5w.xeuugli.x1r8uery.x1iyjqo2.xs83m0k.x1icxu4v.x25sj25.x10b6aqq.x1yrsyyn',
+            # Alternative: More flexible container selector (finds any div containing an event link)
+            'container_fallback': 'div:has(a[href*="/events/"])',
             'event_link': 'a[href*="/events/"]',
-            # Updated selectors based on actual HTML structure
-            'date_container': '.xu06os2.x1ok221b',
-            'date_text': '.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6',
+            # Selectors relative to the container (these look correct based on your HTML)
             'title_span': 'span.html-span',
-            'location_container': '.x1gslohp > div:first-child'
+            'date_text': 'div.xu06os2 span.x1lliihq',
+            'location_container': 'div.x1gslohp'
         }
     }
 
@@ -48,17 +49,44 @@ class FacebookEventScraper:
         'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
     }
 
-    def __init__(self, csv_file: str) -> None:
+    def __init__(self, csv_file: str, categories_csv: str = "page_categories.csv") -> None:
         """
         Initialize the scraper.
 
         Args:
             csv_file (str): Path to CSV file containing Facebook page URLs
+            categories_csv (str): Path to CSV file containing Facebook page links and categories
         """
         self.csv_file = Path(csv_file)
+        self.categories_csv = Path(categories_csv)
         self.logger = self._setup_logger()
         self.popups_dismissed = False
         self.processed_urls = set()
+        self.page_to_categories = self._load_page_categories()
+
+    def _load_page_categories(self) -> dict:
+        """Load mapping from fb_page_link to list of categories from page_categories.csv."""
+        mapping = {}
+        try:
+            with open(self.categories_csv, encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if 'fb_page_link' in row and 'category' in row:
+                        page_url = row['fb_page_link'].replace('www.', '').replace('web.', '').rstrip('/')
+                        categories = [cat.strip() for cat in row['category'].strip('"').split(',')]
+                        mapping[page_url] = categories
+            self.logger.info(f"Loaded {len(mapping)} page-category mappings")
+        except Exception as e:
+            self.logger.error(f"Could not load page_categories.csv: {e}")
+        return mapping
+
+    def _get_categories_for_url(self, url: str) -> list:
+        """Get categories for a given URL, normalizing the URL first."""
+        normalized_url = url.replace('www.', '').replace('web.', '').rstrip('/')
+        categories = self.page_to_categories.get(normalized_url, [])
+        if not categories:
+            self.logger.warning(f"No categories found for normalized URL: {normalized_url}")
+        return categories
 
     async def scrape_events(self) -> None:
         """
@@ -99,16 +127,15 @@ class FacebookEventScraper:
                     batch = urls[i:i + batch_size]
                     self.logger.info(f"Processing batch {i//batch_size + 1}/{len(urls)//batch_size + 1}")
                     
-                    batch_results = []
-                    for url in batch:
-                        try:
-                            result = await self._scrape_page_with_retry(context, url)
-                            batch_results.append(result)
-                        except Exception as e:
-                            self.logger.error(f"Failed to process {url}: {str(e)}")
-                            batch_results.append({})
+                    tasks = [self._scrape_page_with_retry(context, url) for url in batch]
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    results.extend(batch_results)
+                    for result in batch_results:
+                        if isinstance(result, Exception):
+                            self.logger.error(f"A task in the batch failed: {result}")
+                        else:
+                            results.append(result)
+                    
                     await asyncio.sleep(5)
                     
                 events = self._merge_results(results)
@@ -134,27 +161,18 @@ class FacebookEventScraper:
                     await asyncio.sleep(10 * (attempt + 1))
                 else:
                     self.logger.error(f"Failed to scrape {url} after {max_retries} attempts")
-                    return {}
+                    raise e
 
     async def _scrape_page(self, context, url: str) -> Dict:
         """Scrape events from a single page."""
         page = await context.new_page()
         try:
             self.logger.info(f"Processing: {url}")
-            
-            await page.goto(url, wait_until='networkidle', timeout=30000)
+            await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await self._handle_popups(page)
             await page.wait_for_timeout(3000)
             
-            # Look for event links first (more reliable)
-            event_links = await page.query_selector_all(self.SELECTORS['event']['event_link'])
-            
-            if event_links:
-                self.logger.info(f"Found {len(event_links)} event links on {url}")
-                await self._scroll_page(page)
-            else:
-                self.logger.warning(f"No event links found on {url}")
-                return {}
+            await self._scroll_page(page)
 
             content = await page.content()
             events = self._parse_content(content, url)
@@ -170,74 +188,27 @@ class FacebookEventScraper:
     async def _handle_popups(self, page: Page) -> None:
         """Handle various popups that might appear."""
         try:
-            # Handle cookie consent
-            await page.evaluate("""
-                () => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    const clickButton = (text) => {
-                        for (const btn of buttons) {
-                            if (btn.textContent.toLowerCase().includes(text)) {
-                                btn.click();
-                                return true;
-                            }
-                        }
-                        return false;
-                    };
-                    
-                    return clickButton('accept') || clickButton('allow') || clickButton('continue');
-                }
-            """)
-            
-            await page.wait_for_timeout(2000)
-            
-            # Handle login prompt
-            await page.evaluate("""
-                () => {
-                    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-                    const closeButton = buttons.find(btn => 
-                        btn.getAttribute('aria-label') === 'Close' || 
-                        btn.textContent.includes('Not Now')
-                    );
-                    if (closeButton) {
-                        closeButton.click();
-                        return true;
-                    }
-                    return false;
-                }
-            """)
-            
-            self.logger.info("✓ Popup handling complete")
-            
-        except Exception as e:
-            self.logger.warning(f"Popup handling error: {str(e)}")
+            cookie_button = page.locator(self.SELECTORS['cookie_consent'])
+            if await cookie_button.count() > 0:
+                await cookie_button.first.click(timeout=5000)
+                self.logger.info("Clicked cookie consent button.")
+                await page.wait_for_timeout(1000)
+        except Exception:
+            self.logger.debug("Cookie consent button not found or could not be clicked.")
+
+        try:
+            close_button = page.locator(self.SELECTORS['login_prompt'])
+            if await close_button.count() > 0:
+                await close_button.first.click(timeout=5000)
+                self.logger.info("Closed login prompt.")
+        except Exception:
+            self.logger.debug("Login prompt not found or could not be closed.")
 
     async def _scroll_page(self, page: Page) -> None:
         """Scroll down the page to load all content."""
-        try:
-            last_event_count = 0
-            no_new_events_count = 0
-            max_no_new_events = 3
-            
-            for scroll in range(10):
-                await page.evaluate("window.scrollBy(0, 800)")
-                await page.wait_for_timeout(1000)
-                
-                events = await page.query_selector_all(self.SELECTORS['event']['event_link'])
-                current_count = len(events)
-                
-                if current_count == last_event_count:
-                    no_new_events_count += 1
-                    if no_new_events_count >= max_no_new_events:
-                        self.logger.info(f"No new events found after {no_new_events_count} scrolls")
-                        break
-                else:
-                    no_new_events_count = 0
-                    
-                last_event_count = current_count
-                self.logger.debug(f"Found {current_count} events after scroll {scroll + 1}")
-                
-        except Exception as e:
-            self.logger.debug(f"Scrolling error (non-critical): {str(e)}")
+        for _ in range(10):  # Scroll 10 times to load more events
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(2000) # Wait for content to load
 
     def _merge_results(self, results: List[Dict]) -> Dict:
         """
@@ -257,130 +228,112 @@ class FacebookEventScraper:
                     if event_id not in seen_events:
                         merged[date].append(event)
                         seen_events.add(event_id)
-                        self.logger.debug(f"Added unique event: {event['event_title']} on {date}")
                     else:
                         self.logger.debug(f"Skipped duplicate event: {event['event_title']} on {date}")
         
         merged = {date: events for date, events in merged.items() if events}
-        
         self.logger.info(f"Merged results: {len(seen_events)} unique events across {len(merged)} dates")
         return merged
 
+    # --- UPDATED PARSING LOGIC with more robust container detection ---
     def _parse_content(self, content: str, url: str) -> Dict:
-        """Parse HTML content using BeautifulSoup with updated selectors."""
+        """Parse HTML content by finding event containers and extracting data from them."""
         events = {}
         soup = BeautifulSoup(content, 'html.parser')
         
-        # Find all event links first
-        event_links = soup.select(self.SELECTORS['event']['event_link'])
-        self.logger.info(f"Found {len(event_links)} event links in HTML")
+        # Try the primary container selector first
+        event_containers = soup.select(self.SELECTORS['event']['container'])
         
-        for link in event_links:
+        # If primary selector fails, try fallback approach
+        if not event_containers:
+            self.logger.warning(f"Primary container selector found 0 containers, trying fallback approach for {url}")
+            # Find all divs that contain event links as a fallback
+            all_event_links = soup.select(self.SELECTORS['event']['event_link'])
+            event_containers = []
+            for link in all_event_links:
+                # Find the parent container (traverse up to find a suitable parent)
+                container = link
+                for _ in range(10):  # Limit traversal depth
+                    container = container.parent
+                    if not container:
+                        break
+                    # Look for a div that has the structural elements we need
+                    if (container.name == 'div' and 
+                        container.select_one('div.xu06os2') and  # Has date structure
+                        container.select_one('span.html-span')):  # Has title structure
+                        event_containers.append(container)
+                        break
+        
+        self.logger.info(f"Found {len(event_containers)} event containers on {url}")
+        
+        # Get categories for the current page URL
+        page_categories = self._get_categories_for_url(url)
+        
+        for container in event_containers:
             try:
-                event_data = self._extract_event_data_updated(link)
-                if event_data and event_data.get('date') and event_data['date'] != "Date TBD":
-                    if event_data['date'] not in events:
-                        events[event_data['date']] = []
-                    events[event_data['date']].append({
-                        'event_title': event_data['title'],
-                        'event_link': event_data['link'],
-                        'event_place': event_data['place']
-                    })
-                    self.logger.debug(f"Extracted event: {event_data['title']} at {event_data['place']}")
+                event_data = self._extract_event_data(container)
+                if event_data and event_data.get('date') != "Date TBD":
+                    date = event_data['date']
+                    if date not in events:
+                        events[date] = []
+                    
+                    # Add categories to the event data
+                    event_data['event_categories'] = page_categories
+                    events[date].append(event_data)
+                    self.logger.debug(f"Extracted: '{event_data['event_title']}' on {date} with categories {page_categories}")
+
             except Exception as e:
-                self.logger.debug(f"Error extracting event data: {str(e)}")
+                self.logger.debug(f"Could not extract data from a container: {str(e)}")
                 continue
         
-        self.logger.info(f"Successfully extracted {sum(len(e) for e in events.values())} events")
+        self.logger.info(f"Successfully extracted {sum(len(e) for e in events.values())} valid events from {url}")
         return events
 
-    def _extract_event_data_updated(self, link_element) -> Dict:
+    def _extract_event_data(self, container) -> Dict:
         """
-        Extract event data from the event link element and its parent container.
+        Extracts single event data from its container block.
+        This is a more robust method than the previous implementation.
         """
-        try:
-            # Get the event URL
-            event_url = self._clean_url(link_element.get('href', ''))
-            if not event_url:
-                return {}
-
-            # Get the title from the link's span
-            title_span = link_element.select_one(self.SELECTORS['event']['title_span'])
-            title = title_span.get_text(strip=True) if title_span else None
-            
-            if not title:
-                # Fallback: try to get any text from the link
-                title = link_element.get_text(strip=True)
-
-            # Find the parent container that holds all event information
-            # Navigate up to find the main event container
-            container = link_element
-            for _ in range(10):  # Limit traversal depth
-                container = container.parent
-                if not container:
-                    break
-                # Look for the characteristic event container classes
-                if container.get('class') and any('x9f619' in str(cls) for cls in container.get('class', [])):
-                    break
-
-            if not container:
-                return {}
-
-            # Extract date - look for date patterns in the container
-            date = self._extract_date_from_container(container)
-            
-            # Extract location - look for location container
-            place = self._extract_place_from_container(container)
-
-            if title and event_url and date and date != "Date TBD":
-                return {
-                    'title': title,
-                    'link': event_url,
-                    'date': date,
-                    'place': place or "No location"
-                }
-
+        if not container:
             return {}
 
-        except Exception as e:
-            self.logger.debug(f"Error in updated extraction: {str(e)}")
+        # Find the link
+        link_tag = container.select_one(self.SELECTORS['event']['event_link'])
+        event_url = self._clean_url(link_tag.get('href', '')) if link_tag else None
+        if not event_url:
             return {}
 
-    def _extract_date_from_container(self, container) -> str:
-        """Extract date from event container."""
-        try:
-            # Look for date patterns in span elements
-            date_spans = container.select('span')
-            for span in date_spans:
-                text = span.get_text(strip=True)
-                # Look for date patterns like "Tue, Jun 17 at 7 PM"
-                if any(pattern in text.lower() for pattern in ['at ', 'pm', 'am', 'mon,', 'tue,', 'wed,', 'thu,', 'fri,', 'sat,', 'sun,']):
-                    date = self._convert_date(text)
-                    if date != "Date TBD":
-                        return date
-            
-            return "Date TBD"
-        except Exception as e:
-            self.logger.debug(f"Date extraction error: {str(e)}")
-            return "Date TBD"
+        # Find the title
+        title_tag = container.select_one(self.SELECTORS['event']['title_span'])
+        title = title_tag.get_text(strip=True) if title_tag else "No Title"
 
-    def _extract_place_from_container(self, container) -> str:
-        """Extract location from event container."""
-        try:
-            # Look for location container
-            location_div = container.select_one(self.SELECTORS['event']['location_container'])
-            if location_div:
-                location_text = location_div.get_text(strip=True)
-                # Clean up location text (remove "Event by" and other metadata)
-                if 'Event by' in location_text:
-                    location_text = location_text.split('Event by')[0].strip()
-                if location_text and location_text not in ['See more', 'Show map']:
-                    return location_text
-            
-            return "No location"
-        except Exception as e:
-            self.logger.debug(f"Location extraction error: {str(e)}")
-            return "No location"
+        # Find the date
+        date_tag = container.select_one(self.SELECTORS['event']['date_text'])
+        date_str = date_tag.get_text(strip=True) if date_tag else None
+        date = self._convert_date(date_str)
+
+        # Find the location/place - Updated extraction logic
+        place = "No location"
+        place_tag = container.select_one(self.SELECTORS['event']['location_container'])
+        if place_tag:
+            # Get the first div inside x1gslohp which contains the venue info
+            venue_div = place_tag.select_one('div')
+            if venue_div:
+                # Extract just the venue name (before any spans or "Event by" text)
+                venue_text = venue_div.get_text(strip=True)
+                # Clean up - remove "Event by" part and everything after
+                if 'Event by' in venue_text:
+                    place = venue_text.split('Event by')[0].strip()
+                else:
+                    # Take only the part before the first span (which usually contains separators)
+                    place = venue_text.split('·')[0].strip() if '·' in venue_text else venue_text
+
+        return {
+            'event_title': title,
+            'event_link': event_url,
+            'date': date,
+            'event_place': place,
+        }
 
     def _clean_url(self, url: str) -> str:
         """Clean Facebook event URL."""
@@ -388,115 +341,109 @@ class FacebookEventScraper:
             return ""
         if '?' in url:
             url = url.split('?')[0]
-        if 'facebook.com' not in url and url.startswith('/'):
-            url = f"https://facebook.com{url}"
+        if not url.startswith('http'):
+            url = f"https://www.facebook.com{url}"
         return url
 
     def _convert_date(self, date_string: str) -> str:
         """
         Convert Facebook date string to standardized format.
+        Updated to handle the actual date format from your HTML: "Mon, Oct 13 at 6:00 PM CEST"
         """
-        try:
-            if not date_string:
-                return "Date TBD"
-
-            self.logger.debug(f"[DATE] Converting: '{date_string}'")
-            date_string = date_string.strip().lower()
-
-            # Get current time in Warsaw timezone (UTC+1)
-            warsaw_tz = datetime.now(timezone(timedelta(hours=1)))
-            current_year = warsaw_tz.year
-            today = warsaw_tz.date()
-
-            # Handle special cases
-            if "happening now" in date_string:
-                return today.strftime("%d/%m/%Y")
-            if "today" in date_string:
-                return today.strftime("%d/%m/%Y")
-            if "tomorrow" in date_string:
-                return (today + timedelta(days=1)).strftime("%d/%m/%Y")
-
-            # Parse standard format: "Tue, Jun 17 at 7 PM" or "Jun 17 at 7 PM"
-            try:
-                # Remove time portion and clean up
-                date_part = date_string.split(" at ")[0]
-                if ',' in date_part:
-                    date_part = date_part.split(',')[1].strip()
-
-                # Parse "Jun 17" format
-                parts = date_part.split()
-                if len(parts) >= 2:
-                    month = parts[0][:3].title()
-                    day = int(parts[1])
-                    
-                    if month in self.MONTHS:
-                        month_num = self.MONTHS[month]
-                        
-                        # Determine year
-                        event_date = datetime(current_year, month_num, day)
-                        if event_date.date() < today:
-                            event_date = datetime(current_year + 1, month_num, day)
-                        
-                        result = event_date.strftime("%d/%m/%Y")
-                        self.logger.debug(f"[DATE] Successfully converted to: {result}")
-                        return result
-
-            except Exception as e:
-                self.logger.debug(f"[DATE] Error parsing standard format: {str(e)}")
-
+        if not date_string:
             return "Date TBD"
+
+        self.logger.debug(f"[DATE] Converting: '{date_string}'")
+        original_date_string = date_string
+        date_string = date_string.lower()
+
+        warsaw_tz = timezone(timedelta(hours=1))  # CET (update for CEST when needed)
+        now = datetime.now(warsaw_tz)
+        today = now.date()
+
+        if "happening now" in date_string or "today" in date_string:
+            return today.strftime("%d/%m/%Y")
+        if "tomorrow" in date_string:
+            return (today + timedelta(days=1)).strftime("%d/%m/%Y")
+
+        try:
+            # Handle the format: "Mon, Oct 13 at 6:00 PM CEST"
+            date_part = date_string.split(" at ")[0].strip()
+            if ',' in date_part:
+                date_part = date_part.split(',')[1].strip()
+
+            parts = date_part.split()
+            if len(parts) >= 2:
+                month_str = parts[0][:3].title()
+                try:
+                    day = int(parts[1])
+                except ValueError:
+                    self.logger.debug(f"[DATE] Could not parse day from '{parts[1]}'")
+                    return "Date TBD"
+                
+                month = self.MONTHS.get(month_str)
+
+                if month:
+                    # Determine the year
+                    event_date_this_year = datetime(now.year, month, day).date()
+                    if event_date_this_year < today:
+                        # If the date has passed this year, assume it's next year
+                        result = datetime(now.year + 1, month, day).strftime("%d/%m/%Y")
+                    else:
+                        result = event_date_this_year.strftime("%d/%m/%Y")
+                    
+                    self.logger.debug(f"[DATE] Successfully converted '{original_date_string}' to {result}")
+                    return result
 
         except Exception as e:
-            self.logger.debug(f"[DATE] Conversion error: {str(e)}")
-            return "Date TBD"
+            self.logger.debug(f"[DATE] Could not parse date '{original_date_string}': {e}")
+
+        return "Date TBD"
 
     def _setup_logger(self) -> logging.Logger:
         """Setup logger for the scraper."""
         logger = logging.getLogger(__name__)
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO) # Change to DEBUG for more verbosity
         return logger
 
     def _read_urls(self) -> List[str]:
-        """Read URLs from CSV file."""
+        """Read only URLs from the first column of the CSV file."""
         urls = []
-        with open(self.csv_file, "r") as csvfile:
+        with open(self.csv_file, "r", encoding="utf-8") as csvfile:
             reader = csv.reader(csvfile)
-            next(reader)
+            next(reader) # Skip header
             for row in reader:
-                urls.extend(row)
-        return urls
+                if row and row[0].startswith("http"):
+                    urls.append(row[0])
+        return list(set(urls)) # Return unique URLs
 
     def _save_events(self, events: Dict) -> None:
-        """
-        Save events to JSON file with proper date sorting.
-        """
-        # Convert string dates to datetime objects for proper sorting
+        """Save events to JSON file with proper date sorting."""
         events_with_dates = {
-            (datetime.strptime(date, "%d/%m/%Y") if date != "Date TBD" else datetime.max): events
-            for date, events in events.items()
+            (datetime.strptime(date, "%d/%m/%Y") if date != "Date TBD" else datetime.max): event_list
+            for date, event_list in events.items()
         }
         
-        # Sort by date
         sorted_events = dict(sorted(events_with_dates.items()))
         
-        # Convert back to string format
         sorted_events_str = {
             key.strftime("%d/%m/%Y") if key != datetime.max else "Date TBD": value
             for key, value in sorted_events.items()
         }
         
-        # Save to file
         with open("events_data.json", "w", encoding="utf-8") as output:
             json.dump(sorted_events_str, output, ensure_ascii=False, indent=4)
+            self.logger.info("Successfully saved sorted events to events_data.json")
 
     async def run(self):
         """Entry point for the scraper."""
         await self.scrape_events()
 
 if __name__ == "__main__":
-    scraper = FacebookEventScraper("my_liked_pages.csv")
+    scraper = FacebookEventScraper("page_categories.csv", "page_categories.csv")
     asyncio.run(scraper.run())
